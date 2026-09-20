@@ -1,0 +1,1 @@
+document.addEventListener('DOMContentLoaded',()=>{const b=document.querySelector('.menu-toggle'),n=document.querySelector('.site-header nav');if(b&&n)b.addEventListener('click',()=>n.classList.toggle('open'));});
