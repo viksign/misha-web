@@ -24,7 +24,7 @@ services:
     environment:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-127.0.0.1,localhost,mishaislandheritage.com,www.mishaislandheritage.com}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://mishaislandheritage.com,https://www.mishaislandheritage.com}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-djapp}
       MYSQL_USER: ${MYSQL_USER:-djapp}
