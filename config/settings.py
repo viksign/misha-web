@@ -7,10 +7,7 @@ load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-only-change-me')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
-ALLOWED_HOSTS = [h.strip() for h in os.getenv(
-    'DJANGO_ALLOWED_HOSTS',
-    '127.0.0.1,localhost,mishaislandheritage.com,www.mishaislandheritage.com',
-).split(',') if h.strip()]
+ALLOWED_HOSTS = ['*']
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv(
     'DJANGO_CSRF_TRUSTED_ORIGINS',
     'https://mishaislandheritage.com,https://www.mishaislandheritage.com',
