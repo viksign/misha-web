@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Analytics | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / ANALYTICS</p><h1>Site activity</h1><p>Shows today's activity by default. IP and proxy-provided country are retained for operational insight.</p></section>
+{% include 'shop/_control_nav.html' %}
+{% if filtered_user %}<section class="section" style="padding-bottom: 0;"><div class="checkout-address-summary"><strong>Filtered by user</strong>{{ filtered_user.get_full_name|default:filtered_user.username }} — {{ filtered_user.email }}<a href="{% url 'control_analytics' %}">Clear filter</a></div></section>{% endif %}
+<section class="section stock-dashboard analytics-dashboard">
+	<form class="order-search-bar" method="get">
+		{% if filtered_user %}<input type="hidden" name="user" value="{{ filtered_user.pk }}">{% endif %}
+		<label for="analytics-start">From</label>
+		<input id="analytics-start" type="datetime-local" name="start" value="{{ start_date }}">
+		<label for="analytics-end">To</label>
+		<input id="analytics-end" type="datetime-local" name="end" value="{{ end_date }}">
+		<button class="button" type="submit">Filter by date/time</button>
+		{% if start_date or end_date %}<a class="button outline" href="?{% if filtered_user %}user={{ filtered_user.pk }}{% endif %}">Clear dates</a>{% endif %}
+	</form>
+	<div class="stock-stats"><div><strong>{{ page_views }}</strong><span>Page views</span></div><div><strong>{{ clicks }}</strong><span>Tracked clicks</span></div><div><strong>{{ unique_ips }}</strong><span>Unique IP addresses</span></div></div>
+	<div class="analytics-charts">
+		<div class="analytics-chart"><h2>Last 7 days</h2><div class="activity-chart">{% for day in daily_activity %}<div class="activity-day"><div class="activity-bars"><i class="view-bar" style="height: {{ day.views|default:0 }}0px" title="{{ day.views }} page views"></i><i class="click-bar" style="height: {{ day.clicks|default:0 }}0px" title="{{ day.clicks }} clicks"></i></div><span>{{ day.label }}</span></div>{% endfor %}</div><div class="chart-legend"><span><i class="view-dot"></i>Page views</span><span><i class="click-dot"></i>Clicks</span></div></div>
+		<div class="analytics-chart"><h2>Top pages</h2>{% for page in top_pages %}<div class="page-bar"><div><span>{% if page.path == '/' %}Home{% else %}{{ page.path }}{% endif %}</span><strong>{{ page.total }}</strong></div><i style="width: {% widthratio page.total largest_page_count 100 %}%"></i></div>{% empty %}<p>No page views recorded yet.</p>{% endfor %}</div>
+		<div class="analytics-chart"><h2>Product interest</h2>{% for product in top_products %}<div class="page-bar"><div><span>{{ product.product__name }}</span><strong>{{ product.total }}</strong></div><i style="width: {% widthratio product.total largest_product_count 100 %}%"></i></div>{% empty %}<p>No product activity recorded yet.</p>{% endfor %}</div>
+	</div>
+	<div class="orders-table-form">
+		<div class="batch-toolbar">
+			<strong>Activity log</strong>
+			<span class="batch-selection">{{ event_page.paginator.count }} record{{ event_page.paginator.count|pluralize }} matching this filter</span>
+			<form method="get" style="display: flex; align-items: center; gap: 10px;">
+				{% if filtered_user %}<input type="hidden" name="user" value="{{ filtered_user.pk }}">{% endif %}
+				{% if start_date %}<input type="hidden" name="start" value="{{ start_date }}">{% endif %}
+				{% if end_date %}<input type="hidden" name="end" value="{{ end_date }}">{% endif %}
+				<label for="analytics-page-size" style="font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--island-green);">Rows per page</label>
+				<select id="analytics-page-size" name="page_size" onchange="this.form.submit()">
+					{% for size in page_size_options %}<option value="{{ size }}"{% if size == page_size %} selected{% endif %}>{{ size }}</option>{% endfor %}
+				</select>
+			</form>
+			<form method="post" onsubmit="return confirm('Permanently delete {{ event_page.paginator.count }} activity record{{ event_page.paginator.count|pluralize }} matching this filter? This cannot be undone.')">
+				{% csrf_token %}
+				<input type="hidden" name="action" value="purge">
+				{% if filtered_user %}<input type="hidden" name="user" value="{{ filtered_user.pk }}">{% endif %}
+				{% if start_date %}<input type="hidden" name="start" value="{{ start_date }}">{% endif %}
+				{% if end_date %}<input type="hidden" name="end" value="{{ end_date }}">{% endif %}
+				<button class="button outline" type="submit">Purge logs</button>
+			</form>
+		</div>
+		<div class="analytics-filter-bar">
+			<label for="analytics-filter">Filter this page</label>
+			<input id="analytics-filter" type="search" data-analytics-filter placeholder="Filter by type, product, path, target or customer">
+		</div>
+		<div class="orders-table-wrap">
+			<table class="orders-table" data-analytics-table>
+				<thead><tr><th>Time</th><th class="is-sortable" data-sort-key="type">Type</th><th class="is-sortable" data-sort-key="product">Product</th><th class="is-sortable" data-sort-key="path">Path</th><th class="is-sortable" data-sort-key="target">Target</th><th>IP</th><th>Location</th><th class="is-sortable" data-sort-key="customer">Customer</th></tr></thead>
+				<tbody>
+					{% for event in events %}
+					<tr class="analytics-row" data-filterable data-type="{{ event.get_event_type_display }}" data-product="{{ event.product.name|default:'' }}" data-path="{% if event.path == '/' %}Home{% else %}{{ event.path }}{% endif %}" data-target="{{ event.target|default:'' }}" data-customer="{% if event.user %}{{ event.user.email }}{% else %}Guest{% endif %}"><td><strong>{{ event.created_at|date:'j M Y H:i' }}</strong></td><td><span class="event-type-badge event-type-{{ event.event_type }}">{{ event.get_event_type_display }}</span></td><td>{{ event.product.name|default:'-' }}</td><td class="analytics-path">{% if event.path == '/' %}Home{% else %}{{ event.path }}{% endif %}</td><td>{{ event.target|default:'-' }}</td><td>{{ event.ip_address|default:'-' }}</td><td>{{ event.location }}</td><td>{% if event.user %}{{ event.user.email }}{% else %}Guest{% endif %}</td></tr>
+					{% empty %}<tr><td colspan="8">No activity recorded for this filter.</td></tr>{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</div>
+	{% if event_page.paginator.num_pages > 1 %}<div class="pagination">{% if event_page.has_previous %}<a href="?page={{ event_page.previous_page_number }}{% if filtered_user %}&amp;user={{ filtered_user.pk }}{% endif %}{% if start_date %}&amp;start={{ start_date }}{% endif %}{% if end_date %}&amp;end={{ end_date }}{% endif %}&amp;page_size={{ page_size }}">Previous</a>{% endif %}<span>Page {{ event_page.number }} of {{ event_page.paginator.num_pages }} ({{ event_page.paginator.count }} record{{ event_page.paginator.count|pluralize }})</span>{% if event_page.has_next %}<a href="?page={{ event_page.next_page_number }}{% if filtered_user %}&amp;user={{ filtered_user.pk }}{% endif %}{% if start_date %}&amp;start={{ start_date }}{% endif %}{% if end_date %}&amp;end={{ end_date }}{% endif %}&amp;page_size={{ page_size }}">Next</a>{% endif %}</div>{% endif %}
+</section>
+{% endblock %}

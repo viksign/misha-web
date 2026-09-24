@@ -1,0 +1,30 @@
+Hello {{ order.shipping_name }},
+
+Thank you for your order with MISHA Island Heritage.
+
+Order reference: {{ order.order_reference|default:order.pk }}
+Order status: {{ order.get_status_display }}
+
+Items:
+{% for item in order.items.all %}- {{ item.quantity }} x {{ item.product_name }} at {{ order.currency }} {{ item.unit_price }}
+{% endfor %}
+Delivery: {{ order.currency }} {{ order.delivery_cost }}
+Total: {{ order.currency }} {{ order.total }}
+
+Payment details:
+Payment status: {{ order.get_payment_status_display }}
+Payment method: {{ order.payment_method|default:'Stripe' }}
+Transaction ID: {{ order.transaction_id|default:'Pending Stripe confirmation' }}
+Payment date: {% if order.payment_date %}{{ order.payment_date|date:'j F Y h:i A T' }}{% else %}Pending Stripe confirmation{% endif %}
+
+Delivery address:
+{{ order.shipping_name }}
+{{ order.shipping_address1 }}
+{% if order.shipping_address2 %}{{ order.shipping_address2 }}
+{% endif %}{{ order.shipping_city }}
+{{ order.shipping_postcode }}
+{{ order.shipping_country }}
+
+We will contact you with the next steps.
+
+MISHA Island Heritage

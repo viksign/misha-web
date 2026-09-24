@@ -1,1 +1,29 @@
-{% extends 'base.html' %}{% block title %}Checkout | MISHA{% endblock %}{% block content %}<section class="page-head"><p class="eyebrow">SECURE CHECKOUT</p><h1>Complete your order</h1></section><section class="checkout"><form method="post" class="checkout-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<label>{{ field.label }}{{ field }}{% for error in field.errors %}<small>{{ error }}</small>{% endfor %}</label>{% endfor %}<button class="button" type="submit">Continue to secure payment →</button></form><aside class="order-summary"><h2>Your order</h2>{% for item in items %}<p>{{ item.quantity }} × {{ item.product.name }} <strong>£{{ item.total }}</strong></p>{% endfor %}<hr><p>Subtotal <strong>£{{ cart.subtotal }}</strong></p><p>Delivery <strong>{% if cart.subtotal >= 100 %}Free{% else %}£4.95{% endif %}</strong></p></aside></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Checkout | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">SECURE CHECKOUT</p>
+	<h1>Complete your order</h1>
+	{% if request.user.is_authenticated %}<p>Your primary billing address comes from your account. Choose a saved shipping address or add a new one below.</p>{% endif %}
+	<p class="checkout-email-note">Your order confirmation and PDF will be sent by email. If you do not see it, please check your Junk or Spam folder.</p>
+</section>
+<section class="checkout">
+	<form method="post" class="checkout-form">
+		{% csrf_token %}
+		{{ form.non_field_errors }}
+		{% for field in form %}
+			<label class="checkout-field{% if field.name == 'billing_address' or field.name == 'shipping_address' %} saved-address-field{% endif %}{% if field.name == 'billing_address' or field.name == 'billing_name' or field.name == 'billing_address1' or field.name == 'billing_address2' or field.name == 'billing_city' or field.name == 'billing_postcode' or field.name == 'billing_country' %} billing-fields{% endif %}">{{ field.label }}{{ field }}{% for error in field.errors %}<small>{{ error }}</small>{% endfor %}</label>
+		{% endfor %}
+		<button class="button" type="submit">Place order</button>
+	</form>
+	<aside class="order-summary">
+		<h2>Your order</h2>
+		{% for item in items %}<p>{{ item.quantity }} × {{ item.product.name }} <strong>£{{ item.total }}</strong></p>{% endfor %}
+		<hr>
+		<p>Subtotal <strong id="checkout-subtotal" data-subtotal="{{ cart.subtotal }}">£{{ cart.subtotal }}</strong></p>
+			<p>Delivery <strong id="checkout-delivery-cost">{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p>
+			<p>Total <strong id="checkout-total">£{{ checkout_total }}</strong></p>
+	</aside>
+</section>
+{{ delivery_rates|json_script:'delivery-rates' }}
+{% endblock %}

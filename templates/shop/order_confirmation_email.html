@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<body style="margin:0;background:#f2f5f3;color:#20312f;font-family:Arial,Helvetica,sans-serif;line-height:1.5;">
+  <div style="max-width:680px;margin:0 auto;padding:28px 16px;">
+    <div style="background:#ffffff;border:1px solid #dbe4e0;">
+      <div style="padding:24px;text-align:center;border-bottom:4px solid #c6a15b;">
+        <a href="{{ logo_url }}" style="display:inline-block;"><img src="cid:misha-logo" alt="MISHA Island Heritage" width="150" style="display:block;width:150px;max-width:60%;height:auto;margin:0 auto;border:0;"></a>
+      </div>
+      <div style="padding:30px 28px;">
+        <p style="margin:0 0 8px;color:#8a6a32;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Order confirmation</p>
+        <h1 style="margin:0 0 18px;color:#183b3a;font-size:28px;font-weight:600;">Thank you for your order</h1>
+        <p>Hello {{ order.shipping_name }},</p>
+        <p>We have received your order and included a PDF copy of the full order details with this email.</p>
+        <table role="presentation" style="width:100%;margin:22px 0;border-collapse:collapse;background:#f5f8f6;">
+          <tr><td style="padding:12px;font-size:13px;color:#60716d;">Order reference</td><td style="padding:12px;text-align:right;font-weight:bold;color:#183b3a;">{{ order.order_reference|default:order.pk }}</td></tr>
+          <tr><td style="padding:12px;font-size:13px;color:#60716d;">Order date</td><td style="padding:12px;text-align:right;">{{ order.created_at|date:'j F Y' }}</td></tr>
+          <tr><td style="padding:12px;font-size:13px;color:#60716d;">Status</td><td style="padding:12px;text-align:right;">{{ order.get_status_display }}</td></tr>
+        </table>
+        <h2 style="color:#183b3a;font-size:18px;border-bottom:1px solid #dbe4e0;padding-bottom:8px;">Your items</h2>
+        <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px;">
+          <tr style="background:#183b3a;color:#ffffff;"><th style="padding:10px;text-align:left;">Product</th><th style="padding:10px;text-align:left;">Details</th><th style="padding:10px;text-align:center;">Qty</th><th style="padding:10px;text-align:right;">Cost</th></tr>
+          {% for item in order.items.all %}
+          <tr style="border-bottom:1px solid #dbe4e0;vertical-align:top;">
+            <td style="padding:12px 8px;"><strong>{{ item.product_name }}</strong><br><span style="color:#60716d;">SKU: {{ item.sku }}</span></td>
+            <td style="padding:12px 8px;color:#60716d;">{% if item.product.description %}{{ item.product.description|truncatechars:160 }}<br>{% endif %}{% if item.product.material %}Material: {{ item.product.material }}<br>{% endif %}{% if item.product.dimensions %}Dimensions: {{ item.product.dimensions }}{% endif %}</td>
+            <td style="padding:12px 8px;text-align:center;">{{ item.quantity }}</td>
+            <td style="padding:12px 8px;text-align:right;white-space:nowrap;">{{ order.currency }} {{ item.line_total|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        <table role="presentation" style="width:260px;margin:22px 0 22px auto;border-collapse:collapse;">
+          <tr><td style="padding:5px 0;color:#60716d;">Subtotal</td><td style="padding:5px 0;text-align:right;">{{ order.currency }} {{ order.subtotal|floatformat:2 }}</td></tr>
+          <tr><td style="padding:5px 0;color:#60716d;">Delivery</td><td style="padding:5px 0;text-align:right;">{{ order.currency }} {{ order.delivery_cost|floatformat:2 }}</td></tr>
+          <tr style="border-top:2px solid #183b3a;font-weight:bold;font-size:16px;"><td style="padding:10px 0;color:#183b3a;">Total</td><td style="padding:10px 0;text-align:right;color:#183b3a;">{{ order.currency }} {{ order.total|floatformat:2 }}</td></tr>
+        </table>
+        <h2 style="color:#183b3a;font-size:18px;border-bottom:1px solid #dbe4e0;padding-bottom:8px;">Payment details</h2>
+        <p><strong>Payment method:</strong> {{ order.payment_method|default:'Pending Stripe confirmation' }}<br><strong>Transaction ID:</strong> {{ order.transaction_id|default:'Pending Stripe confirmation' }}<br><strong>Date:</strong> {% if order.payment_date %}{{ order.payment_date|date:'j M Y h:i A T' }}{% else %}Pending Stripe confirmation{% endif %}</p>
+        <h2 style="color:#183b3a;font-size:18px;border-bottom:1px solid #dbe4e0;padding-bottom:8px;">Delivery address</h2>
+        <p>{{ order.shipping_name }}<br>{{ order.shipping_address1 }}{% if order.shipping_address2 %}<br>{{ order.shipping_address2 }}{% endif %}<br>{{ order.shipping_city }}<br>{{ order.shipping_postcode }}<br>{{ order.shipping_country }}</p>
+        <p style="margin-top:28px;">We will contact you with the next steps.</p>
+      </div>
+      <div style="padding:18px 28px;background:#183b3a;color:#ffffff;font-size:12px;text-align:center;">MISHA Island Heritage</div>
+    </div>
+  </div>
+</body>
+</html>

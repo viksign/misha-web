@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Control Panel | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">STAFF AREA</p>
+  <h1>Control panel</h1>
+  <p>Manage products, stock, orders and delivery pricing from one place.</p>
+</section>
+
+{% include 'shop/_control_nav.html' %}
+
+<section class="section control-panel">
+  <div class="control-stats">
+    <div><strong>{{ active_product_count }}</strong><span>Active products</span></div>
+    <div><strong>{{ low_stock_count }}</strong><span>Low-stock products</span></div>
+    <div><strong>{{ pending_order_count }}</strong><span>Open orders</span></div>
+    <div><strong>{{ delivery_count }}</strong><span>Delivery options</span></div>
+  </div>
+
+  <div class="control-grid">
+    <a class="control-card" href="{% url 'control_products' %}">
+      <span class="eyebrow">CATALOGUE</span><h2>Products</h2><p>Add, remove, edit prices, update stock and control visibility.</p><span class="control-link">Open product manager</span>
+    </a>
+    <a class="control-card" href="{% url 'control_stock' %}">
+      <span class="eyebrow">INVENTORY</span><h2>Stock dashboard</h2><p>Monitor stock levels and update quantities quickly from one table.</p><span class="control-link">Open stock dashboard</span>
+    </a>
+    <a class="control-card" href="{% url 'control_orders' %}">
+      <span class="eyebrow">FULFILMENT</span><h2>Orders</h2><p>Review customer orders, payment status, delivery details and order items.</p><span class="control-link">Open order manager</span>
+    </a>
+    <a class="control-card" href="{% url 'control_sales' %}">
+      <span class="eyebrow">FINANCE</span><h2>Sales dashboard</h2><p>Revenue, cost of goods, margin, forecasts and stock replenishment budgeting.</p><span class="control-link">Open sales dashboard</span>
+    </a>
+    <a class="control-card" href="{% url 'control_delivery' %}">
+      <span class="eyebrow">DELIVERY</span><h2>Delivery pricing</h2><p>Change UK Standard, UK Express and International prices or free-delivery thresholds.</p><span class="control-link">Manage delivery prices</span>
+    </a>
+    <a class="control-card" href="{% url 'control_collections' %}">
+      <span class="eyebrow">ORGANISATION</span><h2>Collections</h2><p>Create and maintain the collections shown throughout the shop.</p><span class="control-link">Manage collections</span>
+    </a>
+    <a class="control-card" href="{% url 'control_analytics' %}">
+      <span class="eyebrow">VISITORS</span><h2>Site activity</h2><p>Review page views, clicks, IP addresses and available location data.</p><span class="control-link">Open analytics</span>
+    </a>
+    <a class="control-card" href="{% url 'control_users' %}">
+      <span class="eyebrow">ACCOUNTS</span><h2>Users</h2><p>Enable or disable customer accounts, check last login and review their activity.</p><span class="control-link">Manage users</span>
+    </a>
+    <a class="control-card" href="{% url 'control_reviews' %}">
+      <span class="eyebrow">CUSTOMER VOICE</span><h2>Reviews &amp; feedback</h2><p>Review enquiries and approve only the customer reviews you want displayed publicly.</p><span class="control-link">Moderate reviews</span>
+    </a>
+  </div>
+</section>
+{% endblock %}

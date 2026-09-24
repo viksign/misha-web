@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}Stock Dashboard | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">CONTROL PANEL / INVENTORY</p>
+  <h1>Stock dashboard</h1>
+  <p>Monitor inventory and update available quantities quickly.</p>
+</section>
+{% include 'shop/_control_nav.html' %}
+
+<section class="section stock-dashboard">
+  <div class="stock-stats">
+    <div><strong>{{ total_units }}</strong><span>Total units</span></div>
+    <div><strong>{{ low_stock_count }}</strong><span>Low stock</span></div>
+    <div><strong>{{ out_of_stock_count }}</strong><span>Out of stock</span></div>
+  </div>
+
+  <form class="stock-search" method="get">
+    <label for="stock-search-input">Find a product or SKU</label>
+    <input id="stock-search-input" name="q" value="{{ query }}" placeholder="Search inventory">
+    <button class="button" type="submit">Search</button>
+    {% if query %}<a class="button outline" href="{% url 'control_stock' %}">Clear</a>{% endif %}
+  </form>
+
+  <div class="stock-table-wrap">
+    <table class="stock-table">
+      <thead><tr><th>Product</th><th>SKU</th><th>Price</th><th>Stock</th><th>Visibility</th><th>Update</th></tr></thead>
+      <tbody>
+        {% for product in products %}
+          <tr class="{% if product.stock_quantity == 0 %}stock-empty{% elif product.stock_quantity <= 5 %}stock-low{% endif %}">
+            <td><strong>{{ product.name }}</strong></td>
+            <td>{{ product.sku }}</td>
+            <td>£{{ product.price }}</td>
+            <td><strong>{{ product.stock_quantity }}</strong></td>
+            <td>
+              <form method="post" class="stock-inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="product_id" value="{{ product.pk }}">
+                <input type="number" name="stock_quantity" min="0" value="{{ product.stock_quantity }}" aria-label="Stock for {{ product.name }}">
+                <label class="stock-active"><input type="checkbox" name="active"{% if product.active %} checked{% endif %}> Active</label>
+                <button class="button" type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">No products match your search.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

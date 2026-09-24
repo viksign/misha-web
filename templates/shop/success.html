@@ -1,1 +1,22 @@
-{% extends 'base.html' %}{% block title %}Thank You | MISHA{% endblock %}{% block content %}<section class="page-head success"><p class="eyebrow">THANK YOU</p><h1>Your order is confirmed</h1>{% if order %}<p>Order #{{ order.id }} · {{ order.email }}</p><a class="button" href="{% url 'catalogue' %}">Continue shopping →</a>{% else %}<p>We could not find the order reference.</p>{% endif %}</section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Order received | MISHA{% endblock %}
+{% block content %}
+<section class="page-head success">
+	<p class="eyebrow">ORDER RECEIVED</p>
+	{% if order %}
+		<h1>Thank you for your order</h1>
+		<p>Your order reference is <strong>{{ order.order_reference|default:order.id }}</strong>. We will contact you with the next steps.</p>
+		<p class="order-status-note">Order status: {{ order.get_status_display }} · Payment status: {{ order.get_payment_status_display }}</p>
+		<div class="payment-details">
+			<h2>Payment details</h2>
+			<p><strong>Payment method:</strong> {{ order.payment_method|default:'Pending Stripe confirmation' }}</p>
+			<p><strong>Transaction ID:</strong> {{ order.transaction_id|default:'Pending Stripe confirmation' }}</p>
+			<p><strong>Date:</strong> {% if order.payment_date %}{{ order.payment_date|date:'j M Y h:i A T' }}{% else %}Pending Stripe confirmation{% endif %}</p>
+		</div>
+		<a class="button" href="{% url 'catalogue' %}">Continue shopping</a>
+	{% else %}
+		<h1>Order reference unavailable</h1>
+		<p>We could not find the order reference.</p>
+	{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Account | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">MY ACCOUNT</p>
+  <h1>Welcome back</h1>
+  <p>Sign in to view your orders, or create a secure MISHA account.</p>
+</section>
+
+<section class="section auth-grid">
+  <div class="auth-panel">
+    <p class="eyebrow">RETURNING CLIENT</p>
+    <h2>Sign in</h2>
+    <p class="auth-intro">Access your orders and saved customer details.</p>
+    <form method="post" action="{% url 'login' %}">
+      {% csrf_token %}
+      {{ login_form.non_field_errors }}
+      <div class="auth-field">
+        {{ login_form.email.label_tag }}
+        {{ login_form.email }}
+        {{ login_form.email.errors }}
+      </div>
+      <div class="auth-field">
+        {{ login_form.password.label_tag }}
+        {{ login_form.password }}
+        {{ login_form.password.errors }}
+      </div>
+      <input type="hidden" name="next" value="{% url 'account' %}">
+      <button class="button" type="submit">Sign in</button>
+    </form>
+    <p class="auth-switch"><a href="{% url 'password_reset' %}">Forgot your password?</a></p>
+  </div>
+
+  <div class="auth-panel">
+    <p class="eyebrow">NEW CLIENT</p>
+    <h2>Create an account</h2>
+    <p class="auth-intro">Save your details and keep your basket with you.</p>
+    <form method="post" action="{% url 'signup' %}">
+      {% csrf_token %}
+      {{ signup_form.non_field_errors }}
+      <div class="auth-field">
+        {{ signup_form.email.label_tag }}
+        {{ signup_form.email }}
+        {{ signup_form.email.errors }}
+      </div>
+      <div class="auth-field">
+        {{ signup_form.password1.label_tag }}
+        {{ signup_form.password1 }}
+        {{ signup_form.password1.errors }}
+        {% if signup_form.password1.help_text %}<div class="auth-help">{{ signup_form.password1.help_text|safe }}</div>{% endif %}
+      </div>
+      <div class="auth-field">
+        {{ signup_form.password2.label_tag }}
+        {{ signup_form.password2 }}
+        {{ signup_form.password2.errors }}
+      </div>
+      <button class="button" type="submit">Create account</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

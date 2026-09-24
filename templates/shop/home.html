@@ -1,5 +1,67 @@
-{% extends 'base.html' %}{% load static %}{% block title %}MISHA Island Heritage — Timeless Jewellery{% endblock %}
-{% block content %}<section class="hero"><div class="hero-copy"><p class="eyebrow">TIMELESS BEAUTY · ROOTED IN OUR ISLAND</p><h1>MISHA</h1><h2>Island Heritage</h2><p>Jewellery that connects cultures &amp; generations.</p><a class="button" href="{% url 'catalogue' %}">Discover the collection →</a></div><div class="hero-art"></div></section>
-<section id="heritage" class="split"><div class="copy"><p class="eyebrow">OUR HERITAGE</p><h2>Rooted in Mauritius,<br>woven through generations.</h2><p>Misha Island Heritage celebrates Mauritius, its vibrant culture, natural beauty and diverse roots. Every piece is designed to carry a sense of place and story.</p><a class="button outline" href="{% url 'contact' %}">Our story →</a></div><div class="photo-panel"><div class="mountain"></div></div></section>
-<section class="section"><div class="section-head"><p class="eyebrow">SIGNATURE COLLECTION</p><h2>Inspired by Nature. Crafted in Gold.</h2><p>Timeless pieces, made for your journey.</p></div><div class="grid">{% for product in featured_products %}{% include 'shop/_product_card.html' with product=product %}{% empty %}<p class="empty">Run <code>python manage.py seed_shop</code> to populate the first products.</p>{% endfor %}</div></section>
-<section class="custom"><div class="craft"></div><div class="copy"><p class="eyebrow">CUSTOM JEWELLERY</p><h2>Your Story. Our Craft.</h2><p>Create a bespoke piece inspired by your heritage, milestones and unique story.</p><a class="button" href="{% url 'contact' %}">Create your unique piece →</a></div></section>{% endblock %}
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Misha Island Heritage{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">TIMELESS BEAUTY · ROOTED IN OUR ISLAND</p>
+    <h1>MISHA</h1>
+    <h2>Island Heritage</h2>
+    <p>Jewellery that connects cultures &amp; generations.</p>
+    <a class="button" href="{% url 'catalogue' %}">Discover the collection →</a>
+  </div>
+  <div class="hero-art">
+    <img class="media-photo" src="{% static 'images/banner1.png' %}" alt="Model wearing Misha Island Heritage jewellery, face not shown" loading="eager" onerror="this.remove()">
+  </div>
+</section>
+
+<section id="heritage" class="split">
+  <div class="copy">
+    <p class="eyebrow">OUR HERITAGE</p>
+    <h2>Wear your roots,<br>Carry the island spirit.</h2>
+    <p>Inspired by the Indian Ocean and its islanders, Misha Island Heritage celebrates the cultures, traditions, colours and stories that shape who we are. Each piece is created to carry a sense of heritage and belonging — a little piece of the islands, wherever life takes you.</p>
+    <a class="button outline" href="{% url 'contact' %}">Our story →</a>
+  </div>
+  <div class="photo-panel">
+    <video class="media-photo" autoplay muted loop playsinline preload="auto" poster="{% static 'images/heritage-model.jpg' %}" data-playback-rate="0.6">
+      <source src="{% static 'images/banner2.mp4' %}" type="video/mp4">
+    </video>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <p class="eyebrow">SIGNATURE COLLECTION</p>
+    <h2>Inspired by Nature. Crafted in Gold.</h2>
+    <p>Timeless pieces, made for your journey.</p>
+  </div>
+  <div class="grid">
+    {% for product in featured_products %}
+      {% include 'shop/_product_card.html' with product=product %}
+    {% empty %}
+      <p class="empty">Run <code>python manage.py seed_shop</code> to populate the first products.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="custom">
+  <div class="craft">
+    <img class="media-photo" src="{% static 'images/custom-model.jpg' %}" alt="Model wearing custom Misha Island Heritage necklace, face not shown" loading="lazy" onerror="this.remove()">
+  </div>
+  <div class="copy">
+    <p class="eyebrow">CUSTOM JEWELLERY</p>
+    <h2>Your Story. Our Craft.</h2>
+    <p>Create a bespoke piece inspired by your heritage, milestones and unique story.</p>
+    <a class="button" href="{% url 'contact' %}">Create your unique piece →</a>
+  </div>
+</section>
+
+{% if featured_reviews %}
+<section class="section reviews-section">
+  <div class="section-head"><p class="eyebrow">FROM OUR CUSTOMERS</p><h2>Worn with meaning.</h2></div>
+  <div class="reviews-grid">{% for review in featured_reviews %}<article class="review-card"><div class="review-rating">{% for star in '12345'|make_list %}{% if forloop.counter <= review.rating %}★{% endif %}{% endfor %}</div><h3>{{ review.title }}</h3><p>{{ review.body }}</p><strong>{{ review.name }}</strong></article>{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

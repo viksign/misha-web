@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Leave a review | MISHA{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">YOUR EXPERIENCE</p><h1>Leave a review</h1><p>Reviews are checked by our team before they appear publicly.</p></section>
+<section class="section form-section"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Submit review</button></form></section>
+{% endblock %}

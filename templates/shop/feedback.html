@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Customer Feedback | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">YOUR EXPERIENCE</p>
+  <h1>Share your feedback</h1>
+  <p>Tell us about your Misha experience. Every submission is reviewed before it appears below.</p>
+</section>
+
+<section class="section form-section">
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="button" type="submit">Submit feedback</button>
+  </form>
+</section>
+
+{% if approved_reviews %}
+<section class="section reviews-section">
+  <div class="section-head">
+    <p class="eyebrow">CUSTOMER SATISFACTION</p>
+    <h2>What customers say</h2>
+  </div>
+  <div class="reviews-grid">
+    {% for review in approved_reviews %}
+    <article class="review-card">
+      <div class="review-rating" aria-label="{{ review.rating }} out of 5 stars">{% for star in '12345'|make_list %}{% if forloop.counter <= review.rating %}★{% endif %}{% endfor %}</div>
+      {% if review.title %}<h3>{{ review.title }}</h3>{% endif %}
+      <p>{{ review.body }}</p>
+      <strong>{{ review.name }}</strong>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

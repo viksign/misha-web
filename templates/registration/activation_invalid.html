@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Activation link invalid | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">ACCOUNT ACTIVATION</p>
+  <h1>Link unavailable</h1>
+  <p>This activation link is invalid or has expired. Please create a new account or contact us for help.</p>
+</section>
+<section class="section form-section">
+  <a class="button" href="{% url 'account' %}">Back to account</a>
+</section>
+{% endblock %}

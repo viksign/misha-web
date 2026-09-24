@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Products | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / CATALOGUE</p><h1>Products</h1><p>Add products, update prices and manage stock.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section control-products-toolbar">
+  <form class="catalogue-search" method="get">
+    <label for="product-search">Search products</label>
+    <input id="product-search" type="search" name="q" value="{{ query }}" placeholder="Name or SKU">
+    <button class="button" type="submit">Search</button>
+    {% if query %}<a class="button outline" href="{% url 'control_products' %}">Clear</a>{% endif %}
+  </form>
+  <button class="button" type="button" data-product-modal-open>Add product</button>
+</section>
+<section class="section product-catalogue-section">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">CATALOGUE</p><h2>All products</h2></div><span>{{ products|length }} result{{ products|length|pluralize }}</span></div>
+  <div class="product-table-wrap">
+    <table class="product-table">
+      <thead><tr><th>Product</th><th>SKU</th><th>Price</th><th>Images</th><th>In stock</th><th>Pending orders</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for product in products %}
+        <tr>
+          <td><strong>{{ product.name }}</strong><small>{{ product.short_description|default:'No short description' }}</small></td>
+          <td>{{ product.sku }}</td>
+          <td>£{{ product.price }}</td>
+          <td>{{ product.images.all|length }}</td>
+          <td><span class="product-stock {% if product.stock_quantity == 0 %}is-empty{% elif product.stock_quantity <= 5 %}is-low{% endif %}">{{ product.stock_quantity }}</span></td>
+          <td><span class="product-pending">{{ product.pending_orders }}</span></td>
+          <td><span class="product-status {% if product.active %}is-active{% else %}is-hidden{% endif %}">{% if product.active %}Active{% else %}Hidden{% endif %}</span></td>
+          <td class="product-actions"><a class="table-action" href="?edit={{ product.pk }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="{{ product.pk }}"><button class="table-action danger" type="submit">Remove</button></form></td>
+        </tr>
+        {% empty %}<tr><td colspan="8" class="empty-table">No products match your search.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+<div class="product-modal" data-product-modal data-open="{% if editing or form.errors %}true{% else %}false{% endif %}"{% if not editing and not form.errors %} hidden{% endif %}>
+  <div class="product-modal-backdrop" data-product-modal-close></div>
+  <div class="product-modal-panel" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+    <div class="product-modal-heading"><h2 id="product-modal-title">{% if editing %}Edit product{% else %}Add product{% endif %}</h2><button class="modal-close" type="button" data-product-modal-close aria-label="Close product form">&times;</button></div>
+    {% if editing and editing.images.all %}
+    <div class="product-image-manager">
+      <span class="product-image-manager-label">Current images</span>
+      <div class="product-image-manager-grid">
+        {% for image in editing.images.all %}
+        <div class="product-image-manager-item">
+          <img src="{{ image.image.url }}" alt="{{ image.alt_text|default:editing.name }}">
+          <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_image"><input type="hidden" name="image_id" value="{{ image.pk }}"><button class="table-action danger" type="submit" onclick="return confirm('Remove this image?')">Delete</button></form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<label>Product images <input type="file" name="images" accept="image/*" multiple>{% if editing %}<span>Select one or more images to add to this product.</span>{% else %}<span>Save the product first, then add images from the edit screen.</span>{% endif %}</label><div class="product-modal-actions"><button class="button" type="submit">Save product</button><button class="button outline" type="button" data-product-modal-close>Cancel</button></div></form>
+  </div>
+</div>
+{% endblock %}

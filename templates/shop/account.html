@@ -1,1 +1,104 @@
-{% extends 'base.html' %}{% block title %}My Account | MISHA{% endblock %}{% block content %}<section class="page-head"><p class="eyebrow">MY ACCOUNT</p><h1>Welcome{% if request.user.first_name %}, {{ request.user.first_name }}{% endif %}</h1></section><section class="section">{% for order in orders %}<div class="bag-row"><div><strong>Order #{{ order.id }}</strong><p>{{ order.created_at|date:'j M Y' }}</p></div><span>{{ order.get_status_display }}</span><strong>£{{ order.total }}</strong></div>{% empty %}<p>You have no orders yet.</p>{% endfor %}</section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}My Account | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">MY ACCOUNT</p>
+	<h1>Welcome{% if request.user.first_name %}, {{ request.user.first_name }}{% endif %}</h1>
+	<p class="account-identity">Signed in as {{ request.user.email }}</p>
+</section>
+<section class="section account-section">
+	<nav class="account-tabs" aria-label="Account sections">
+		<button class="account-tab is-active" type="button" data-account-tab="details">Details</button>
+		<button class="account-tab" type="button" data-account-tab="orders">Orders</button>
+		<button class="account-tab" type="button" data-account-tab="privacy">Privacy</button>
+	</nav>
+	<div class="account-tab-panel is-active" data-account-panel="details">
+	<div class="account-details">
+		<div class="account-toolbar">
+			<h2>Your details</h2>
+			{% if not edit_mode %}<a class="button outline" href="{% url 'account' %}?edit=1">Edit details</a>{% endif %}
+		</div>
+		<p class="account-helper">Keep your contact details current for deliveries and account support.</p>
+		{% if edit_mode %}
+			<form class="profile-form" method="post">
+				{% csrf_token %}
+				{{ profile_form.non_field_errors }}
+				{% for field in profile_form %}
+					<div class="profile-field{% if field.name == 'address' %} profile-field-wide{% endif %}">
+						{{ field.label_tag }}
+						{{ field }}
+						{{ field.errors }}
+						{% if field.help_text %}<span class="profile-help">{{ field.help_text }}</span>{% endif %}
+					</div>
+				{% endfor %}
+				<div class="profile-actions">
+					<button class="button" type="submit">Save details</button>
+					<a class="button outline" href="{% url 'account' %}">Cancel</a>
+				</div>
+			</form>
+		{% else %}
+			<table class="details-table">
+				<tbody>
+					<tr><th>Title</th><td>{{ profile.get_title_display|default:'Not provided' }}</td></tr>
+					<tr><th>First name</th><td>{{ request.user.first_name|default:'Not provided' }}</td></tr>
+					<tr><th>Last name</th><td>{{ request.user.last_name|default:'Not provided' }}</td></tr>
+					<tr><th>Email address</th><td>{{ request.user.email|default:'Not provided' }}</td></tr>
+					<tr><th>Phone number</th><td>{{ profile.phone|default:'Not provided' }}</td></tr>
+					<tr><th>House / door number</th><td>{{ profile.house_number|default:'Not provided' }}</td></tr>
+					<tr><th>Street name</th><td>{{ profile.street_name|default:'Not provided' }}</td></tr>
+					<tr><th>City</th><td>{{ profile.city|default:'Not provided' }}</td></tr>
+					<tr><th>Postcode</th><td>{{ profile.postcode|default:'Not provided' }}</td></tr>
+					<tr><th>Country</th><td>{{ profile.country|default:'Not provided' }}</td></tr>
+				</tbody>
+			</table>
+		{% endif %}
+	</div>
+	</div>
+
+	<div class="account-tab-panel" data-account-panel="privacy" hidden>
+	<div class="privacy-panel">
+		<p class="eyebrow">PRIVACY</p>
+		<h2>Personal data</h2>
+		<p>Request removal of your personal account information. Order records may need to be retained where required by law.</p>
+		{% if privacy_request_pending %}
+			<p class="privacy-status">Your removal request is pending review.</p>
+		{% else %}
+			<form method="post" action="{% url 'request_privacy_erasure' %}">
+				{% csrf_token %}
+				<button class="button outline" type="submit">Request data removal</button>
+			</form>
+		{% endif %}
+	</div>
+	</div>
+
+	<div class="account-tab-panel" data-account-panel="orders" hidden>
+	<div class="account-toolbar">
+		<h2>Your orders</h2>
+		<form method="post" action="{% url 'logout' %}">
+			{% csrf_token %}
+			<button class="button outline" type="submit">Sign out</button>
+		</form>
+	</div>
+	{% for order in orders %}
+		<button class="order-row" type="button" data-order-modal="order-{{ order.pk }}">
+			<div><strong>Order {{ order.order_reference|default:order.id }}</strong><p>{{ order.created_at|date:'j M Y' }}</p></div>
+			<span>{{ order.get_status_display }}</span>
+			<strong>£{{ order.total }}</strong>
+		</button>
+		<template id="order-{{ order.pk }}">
+			<div class="order-modal-content">
+				<div class="order-modal-heading"><div><p class="eyebrow">ORDER {{ order.order_reference|default:order.id }}</p><h2>Your order</h2><p>{{ order.created_at|date:'j F Y, H:i' }}</p></div><button class="modal-close" type="button" aria-label="Close order details">×</button></div>
+				<div class="order-modal-status"><span>Order: {{ order.get_status_display }}</span><span>Payment: {{ order.get_payment_status_display }}</span><span>Delivery: {{ order.get_delivery_method_display }}</span></div>
+				<h3>Items</h3>{% for item in order.items.all %}<div class="order-modal-item"><span>{{ item.quantity }} × {{ item.product_name }}</span><strong>£{{ item.line_total }}</strong></div>{% endfor %}
+				<div class="order-modal-totals"><p>Subtotal <strong>£{{ order.subtotal }}</strong></p><p>Delivery <strong>£{{ order.delivery_cost }}</strong></p><p>Total <strong>£{{ order.total }}</strong></p></div>
+				<h3>Delivery details</h3><p>{{ order.shipping_name }}<br>{{ order.shipping_address1 }}{% if order.shipping_address2 %}<br>{{ order.shipping_address2 }}{% endif %}<br>{{ order.shipping_city }}, {{ order.shipping_postcode }}<br>{{ order.shipping_country }}</p>
+				{% if order.tracking_number %}<p class="tracking-number"><strong>Tracking number</strong><br>{{ order.tracking_number }}</p>{% else %}<p class="tracking-pending">Tracking information will appear here once your order has been dispatched.</p>{% endif %}
+			</div>
+		</template>
+	{% empty %}
+		<p>You have no orders yet.</p>
+	{% endfor %}
+	</div>
+</section>
+<div class="order-modal" hidden role="dialog" aria-modal="true" aria-label="Order details"><div class="order-modal-backdrop"></div><div class="order-modal-panel"></div></div>
+{% endblock %}

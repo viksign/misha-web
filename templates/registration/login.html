@@ -1,1 +1,18 @@
-{% extends 'base.html' %}{% block title %}Sign in | MISHA{% endblock %}{% block content %}<section class="page-head"><p class="eyebrow">MY ACCOUNT</p><h1>Sign in</h1></section><section class="section form-section"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Sign in →</button></form></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Sign in | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">MY ACCOUNT</p>
+	<h1>Sign in</h1>
+</section>
+<section class="section form-section">
+	<form method="post">
+		{% csrf_token %}
+		{{ form.as_p }}
+		{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+		<button class="button" type="submit">Sign in</button>
+	</form>
+	<p class="auth-switch"><a href="{% url 'password_reset' %}">Forgot your password?</a></p>
+	<p class="auth-switch">New to MISHA? <a href="{% url 'account' %}">Create an account</a></p>
+</section>
+{% endblock %}

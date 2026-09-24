@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Sales Dashboard | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / FINANCE</p><h1>Sales dashboard</h1><p>Revenue, cost of goods and stock replenishment budgeting for forecasting and planning.</p></section>
+{% include 'shop/_control_nav.html' %}
+
+<section class="section analytics-dashboard">
+  <div class="control-products-toolbar" style="margin-bottom: 24px;">
+    <div class="catalogue-search">
+      <a class="button{% if period == 'month' %}{% else %} outline{% endif %}" href="?period=month">Monthly</a>
+      <a class="button{% if period == 'quarter' %}{% else %} outline{% endif %}" href="?period=quarter">Quarterly</a>
+      <a class="button{% if period == 'year' %}{% else %} outline{% endif %}" href="?period=year">Annual</a>
+    </div>
+  </div>
+
+  <div class="control-stats">
+    <div><strong>£{{ totals.revenue|floatformat:2 }}</strong><span>Total revenue</span></div>
+    <div><strong>£{{ totals.cogs|floatformat:2 }}</strong><span>Cost of goods sold</span></div>
+    <div><strong>£{{ totals.gross_profit|floatformat:2 }}</strong><span>Gross profit ({{ totals.margin|floatformat:1 }}% margin)</span></div>
+    <div><strong>{{ totals.order_count }}</strong><span>Orders in view</span></div>
+  </div>
+
+  {% if forecast %}
+  <div class="checkout-address-summary" style="margin-bottom: 28px;">
+    <strong>Sales forecast</strong>
+    Projected {{ forecast.label }} revenue: £{{ forecast.revenue|floatformat:2 }} — trend is {{ forecast.trend }} (£{{ forecast.change|floatformat:2 }} per period based on a simple linear trend of the recent history below). Use this as a planning guide, not a guarantee.
+  </div>
+  {% endif %}
+
+  <div class="orders-table-form" style="margin-bottom: 32px;">
+    <div class="batch-toolbar">
+      <strong>Revenue by period</strong>
+      <span class="batch-selection">{{ periods|length }} period{{ periods|length|pluralize }} shown</span>
+    </div>
+    <div class="orders-table-wrap">
+      <table class="orders-table">
+        <thead><tr><th>Period</th><th>Revenue</th><th>Cost of goods</th><th>Gross profit</th><th>Margin</th><th>Orders</th><th>Avg. order value</th></tr></thead>
+        <tbody>
+          {% for row in periods %}
+          <tr><td><strong>{{ row.label }}</strong></td><td>£{{ row.revenue|floatformat:2 }}</td><td>£{{ row.cogs|floatformat:2 }}</td><td>£{{ row.gross_profit|floatformat:2 }}</td><td>{{ row.margin|floatformat:1 }}%</td><td>{{ row.order_count }}</td><td>£{{ row.aov|floatformat:2 }}</td></tr>
+          {% empty %}<tr><td colspan="7">No paid orders recorded yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="orders-table-form">
+    <div class="batch-toolbar">
+      <strong>Stock replenishment budget</strong>
+      <span class="batch-selection">Products at or below reorder level, restocked up to their target quantity</span>
+      <strong style="color: #963c2d;">£{{ total_replenishment_cost|floatformat:2 }} needed</strong>
+    </div>
+    <div class="orders-table-wrap">
+      <table class="orders-table">
+        <thead><tr><th>Product</th><th>Stock</th><th>Reorder level</th><th>Restock target</th><th>Qty needed</th><th>Unit cost</th><th>Budget</th></tr></thead>
+        <tbody>
+          {% for entry in replenishment_items %}
+          <tr><td><strong>{{ entry.product.name }}</strong><small>{{ entry.product.sku }}</small></td><td>{{ entry.product.stock_quantity }}</td><td>{{ entry.product.reorder_level }}</td><td>{{ entry.product.restock_target }}</td><td>{{ entry.qty_needed }}</td><td>£{{ entry.product.cost_price|floatformat:2 }}</td><td>£{{ entry.line_cost|floatformat:2 }}</td></tr>
+          {% empty %}<tr><td colspan="7">No products currently need restocking.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Users | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / ACCOUNTS</p><h1>Users</h1><p>Manage customer accounts, enable or disable access, and review activity.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section product-catalogue-section">
+  <form class="catalogue-search" method="get" style="margin-bottom: 24px;">
+    <label for="user-search">Search users</label>
+    <input id="user-search" type="search" name="q" value="{{ query }}" placeholder="Name, username or email">
+    <button class="button" type="submit">Search</button>
+    {% if query %}<a class="button outline" href="{% url 'control_users' %}">Clear</a>{% endif %}
+  </form>
+  <div class="product-catalogue-heading"><div><p class="eyebrow">ACCOUNTS</p><h2>All users</h2></div><span>{{ users|length }} result{{ users|length|pluralize }}</span></div>
+  <div class="product-table-wrap">
+    <table class="product-table">
+      <thead><tr><th>User</th><th>Last login</th><th>Joined</th><th>Orders</th><th>Activity</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for account in users %}
+        <tr>
+          <td><strong>{{ account.get_full_name|default:account.username }}</strong><small>{{ account.email }}</small></td>
+          <td>{% if account.last_login %}{{ account.last_login|date:'j M Y, H:i' }}{% else %}<span class="stock-active">Never signed in</span>{% endif %}</td>
+          <td>{{ account.date_joined|date:'j M Y' }}</td>
+          <td>{{ account.order_count }}</td>
+          <td><a class="table-action" href="{% url 'control_analytics' %}?user={{ account.pk }}">{{ account.activity_count }} event{{ account.activity_count|pluralize }}</a></td>
+          <td><span class="product-status {% if account.is_active %}is-active{% else %}is-hidden{% endif %}">{% if account.is_active %}Active{% else %}Disabled{% endif %}</span></td>
+          <td class="product-actions">
+            <button class="table-action" type="button" data-order-modal="manage-user-{{ account.pk }}">Amend</button>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="toggle_active">
+              <input type="hidden" name="user_id" value="{{ account.pk }}">
+              {% if account == request.user %}
+                <span class="stock-active">Current user</span>
+              {% else %}
+                <button class="table-action{% if account.is_active %} danger{% endif %}" type="submit" onclick="return confirm('{% if account.is_active %}Disable{% else %}Enable{% endif %} this account?')">{% if account.is_active %}Disable{% else %}Enable{% endif %}</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% empty %}<tr><td colspan="7" class="empty-table">No users match your search.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for account in users %}
+    <template id="manage-user-{{ account.pk }}">
+      <div class="order-management-modal">
+        <div class="modal-heading">
+          <div><p class="eyebrow">ACCOUNT</p><h2>{{ account.get_full_name|default:account.username }}</h2></div>
+          <button class="modal-close" type="button" aria-label="Close user management">&times;</button>
+        </div>
+        <div class="modal-order-summary">
+          <strong>{{ account.email }}</strong>
+          <span>Joined {{ account.date_joined|date:'j F Y' }}</span>
+          <span>Last login: {% if account.last_login %}{{ account.last_login|date:'j F Y, H:i' }}{% else %}Never signed in{% endif %}</span>
+          <span>{{ account.order_count }} order{{ account.order_count|pluralize }} · {{ account.activity_count }} activity event{{ account.activity_count|pluralize }}</span>
+        </div>
+        <form method="post" class="management-form modal-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="edit_details">
+          <input type="hidden" name="user_id" value="{{ account.pk }}">
+          <label>First name<input type="text" name="first_name" value="{{ account.first_name }}"></label>
+          <label>Last name<input type="text" name="last_name" value="{{ account.last_name }}"></label>
+          <label>Email<input type="email" name="email" value="{{ account.email }}" required></label>
+          <label><input type="checkbox" name="is_staff" {% if account.is_staff %}checked{% endif %} style="width: auto; display: inline-block; margin-right: 8px;"> Control panel access (staff)</label>
+          <button class="button" type="submit">Save changes</button>
+        </form>
+        <form method="post" class="modal-form" style="margin-top: 14px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reset_password">
+          <input type="hidden" name="user_id" value="{{ account.pk }}">
+          <button class="button outline" type="submit">Send password reset email</button>
+        </form>
+      </div>
+    </template>
+  {% endfor %}
+</section>
+<div class="order-modal" hidden role="dialog" aria-modal="true" aria-label="Manage user"><div class="order-modal-backdrop"></div><div class="order-modal-panel"></div></div>
+{% endblock %}

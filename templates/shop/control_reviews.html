@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Reviews and Feedback | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / CUSTOMER VOICE</p><h1>Reviews and feedback</h1><p>Reviews are customer satisfaction ratings — approve or reject them for the public site. Feedback is customer conversation (e.g. custom design requests) that needs a reply.</p></section>
+{% include 'shop/_control_nav.html' %}
+
+<section class="section product-catalogue-section">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">CSAT</p><h2>Customer reviews</h2></div><span>{{ reviews|length }} review{{ reviews|length|pluralize }}</span></div>
+  <div class="product-table-wrap">
+    <table class="product-table">
+      <thead><tr><th>Review</th><th>Customer</th><th>Date</th><th>Status</th><th>Featured</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for review in reviews %}
+        <tr>
+          <td><strong>{{ review.title|default:'Review' }} · {{ review.rating }}/5</strong><small>{{ review.body }}</small></td>
+          <td>{{ review.name }}</td>
+          <td>{{ review.created_at|date:'j M Y' }}</td>
+          <td><span class="product-status {% if review.status == 'approved' %}is-active{% else %}is-hidden{% endif %}">{{ review.get_status_display }}</span></td>
+          <td>{% if review.featured %}Yes{% else %}No{% endif %}</td>
+          <td class="product-actions">
+            <form method="post" style="display: flex; align-items: center; gap: 8px;">
+              {% csrf_token %}
+              <input type="hidden" name="review_id" value="{{ review.pk }}">
+              <select name="status"><option value="pending"{% if review.status == 'pending' %} selected{% endif %}>Pending</option><option value="approved"{% if review.status == 'approved' %} selected{% endif %}>Approved</option><option value="rejected"{% if review.status == 'rejected' %} selected{% endif %}>Rejected</option></select>
+              <label style="display: flex; align-items: center; gap: 4px; white-space: nowrap;"><input type="checkbox" name="featured"{% if review.featured %} checked{% endif %}> Feature</label>
+              <button class="table-action" type="submit">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}<tr><td colspan="6" class="empty-table">No reviews submitted yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section product-catalogue-section">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">CUSTOMER VOICE</p><h2>Customer feedback</h2></div><span>{{ feedback|length }} message{{ feedback|length|pluralize }}</span></div>
+  <div class="product-table-wrap">
+    <table class="product-table">
+      <thead><tr><th>Subject</th><th>Customer</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for item in feedback %}
+        <tr>
+          <td><strong>{{ item.subject|default:'General enquiry' }}</strong><small>{{ item.message|truncatechars:90 }}</small></td>
+          <td>
+            <span>{{ item.name }}</span><small>{{ item.email }}</small>
+            {% if item.linked_user %}<small><a href="{% url 'control_users' %}?q={{ item.linked_user.email|urlencode }}">Linked account</a></small>{% else %}<small>No account match</small>{% endif %}
+          </td>
+          <td>{{ item.created_at|date:'j M Y' }}</td>
+          <td><span class="product-status {% if item.handled %}is-active{% else %}is-hidden{% endif %}">{% if item.handled %}Replied{% else %}Needs reply{% endif %}</span></td>
+          <td class="product-actions"><button class="table-action" type="button" data-order-modal="manage-feedback-{{ item.pk }}">Manage</button></td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="empty-table">No feedback yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for item in feedback %}
+    <template id="manage-feedback-{{ item.pk }}">
+      <div class="order-management-modal">
+        <div class="modal-heading">
+          <div><p class="eyebrow">FEEDBACK</p><h2>{{ item.subject|default:'General enquiry' }}</h2></div>
+          <button class="modal-close" type="button" aria-label="Close feedback thread">&times;</button>
+        </div>
+        <div class="modal-order-summary">
+          <strong>{{ item.name }} · {{ item.email }}</strong>
+          {% if item.phone %}<span>{{ item.phone }}</span>{% endif %}
+          <span>Submitted {{ item.created_at|date:'j F Y, H:i' }}</span>
+          {% if item.linked_user %}<span>Linked customer account: {{ item.linked_user.email }}</span>{% else %}<span>No matching customer account found for this email.</span>{% endif %}
+        </div>
+        <h3>Thread</h3>
+        <div class="feedback-thread">
+          <div class="feedback-message"><strong>{{ item.name }}</strong><p>{{ item.message|linebreaksbr }}</p><small>{{ item.created_at|date:'j M Y, H:i' }}</small></div>
+          {% for reply in item.replies.all %}
+            <div class="feedback-message feedback-message-staff"><strong>MISHA (staff reply)</strong><p>{{ reply.message|linebreaksbr }}</p><small>{{ reply.created_at|date:'j M Y, H:i' }}</small></div>
+          {% endfor %}
+        </div>
+        <form method="post" class="management-form modal-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reply_feedback">
+          <input type="hidden" name="enquiry_id" value="{{ item.pk }}">
+          <label for="feedback-message-{{ item.pk }}">Reply to {{ item.name }}</label>
+          <textarea id="feedback-message-{{ item.pk }}" name="message" rows="4" placeholder="Write your reply..."></textarea>
+          <button class="button" type="submit">Send reply</button>
+        </form>
+      </div>
+    </template>
+  {% endfor %}
+</section>
+<div class="order-modal" hidden role="dialog" aria-modal="true" aria-label="Manage feedback"><div class="order-modal-backdrop"></div><div class="order-modal-panel"></div></div>
+{% endblock %}
+

@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Collections | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / ORGANISATION</p><h1>Collections</h1><p>Organise the jewellery shown in the catalogue.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section management-layout">
+  <div class="management-form"><h2>{% if editing %}Edit collection{% else %}Add collection{% endif %}</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Save collection</button>{% if editing %}<a class="button outline" href="{% url 'control_collections' %}">Cancel</a>{% endif %}</form></div>
+  <div class="management-list"><h2>Collections</h2>{% for collection in collections %}<div class="management-row"><div><strong>{{ collection.name }}</strong><span>{{ collection.slug }}</span></div><span>{% if collection.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit={{ collection.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="collection_id" value="{{ collection.pk }}"><button type="submit">Remove</button></form></div>{% empty %}<p>No collections yet.</p>{% endfor %}</div>
+</section>
+{% endblock %}

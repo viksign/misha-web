@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Activate your account | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">ACCOUNT CREATED</p>
+  <h1>Check your email</h1>
+  <p>We sent an activation link to <strong>{{ email }}</strong>. Activate your account before signing in and ordering.</p>
+</section>
+<section class="section form-section">
+  <a class="button" href="{% url 'login' %}">Return to sign in</a>
+</section>
+{% endblock %}

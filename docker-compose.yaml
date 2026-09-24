@@ -12,10 +12,11 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u${MYSQL_USER:-djapp}", "-p${MYSQL_PASSWORD:-djapp-password}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root"]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 10s
 
   web:
     build: .
@@ -31,37 +32,30 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-djapp-password}
       MYSQL_HOST: db
       MYSQL_PORT: 3306
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Misha Island Heritage <no-reply@mishaislandheritage.com>}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-True}
+      SITE_URL: ${SITE_URL:-https://www.mishaislandheritage.com}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_CURRENCY: ${STRIPE_CURRENCY:-gbp}
+  
     volumes:
       - .:/app
-      - certbot_www:/var/www/certbot:ro
-      - letsencrypt:/etc/letsencrypt:ro
+
     ports:
-      - "80:8000"
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     command: >-
       sh -c "python manage.py migrate
-      && gunicorn --bind 0.0.0.0:8000 --workers 3 config.wsgi:application"
+      && python manage.py runserver 0.0.0.0:8000"
 
-  certbot:
-    build: .
-    restart: unless-stopped
-    environment:
-      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
-      CERTBOT_DOMAINS: ${CERTBOT_DOMAINS:-mishaislandheritage.com,www.mishaislandheritage.com}
-    volumes:
-      - certbot_www:/var/www/certbot
-      - letsencrypt:/etc/letsencrypt
-    depends_on:
-      - web
-    command: >-
-      sh -c "certbot certonly --webroot --webroot-path=/var/www/certbot
-      --email $${CERTBOT_EMAIL} --agree-tos --no-eff-email --non-interactive
-      --keep-until-expiring -d $${CERTBOT_DOMAINS}
-      && while :; do certbot renew --quiet; sleep 12h; done"
-
+ 
 volumes:
   mysql_data:
-  certbot_www:
-  letsencrypt:

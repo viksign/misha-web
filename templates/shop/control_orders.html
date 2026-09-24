@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Orders | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / FULFILMENT</p><h1>Orders</h1><p>Review orders and update fulfilment or payment status.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section orders-management">
+  <form class="order-search-bar" method="get">
+    <label for="order-search">Search by order number, customer email, or postcode</label>
+    <input id="order-search" name="q" value="{{ query }}" placeholder="Order number, email, or postcode">
+    <button class="button" type="submit">Search orders</button>
+    {% if query %}<a class="button outline" href="{% url 'control_orders' %}">Clear</a>{% endif %}
+  </form>
+
+  <form method="post" class="orders-table-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="batch_update">
+    <div class="batch-toolbar">
+      <strong>Order history</strong>
+      <span class="batch-selection">Select orders to update together</span>
+      <select name="batch_status" aria-label="Status for selected orders">
+        <option value="">Set status...</option>
+        {% for value, label in status_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+      <button class="button" type="submit">Update selected</button>
+    </div>
+    <div class="orders-table-wrap">
+      <table class="orders-table">
+        <thead><tr><th><input type="checkbox" data-select-all aria-label="Select all orders"></th><th>Order</th><th>Customer</th><th>Postcode</th><th>Date</th><th>Total</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for order in orders %}
+            <tr class="order-table-row">
+              <td><input type="checkbox" name="order_ids" value="{{ order.pk }}" data-order-checkbox aria-label="Select order {{ order.order_reference|default:order.pk }}"></td>
+              <td><strong>{{ order.order_reference|default:order.pk }}</strong></td>
+              <td><span>{{ order.email }}</span><small>{{ order.shipping_name }}</small></td>
+              <td>{{ order.shipping_postcode }}</td>
+              <td>{{ order.created_at|date:'j M Y' }}</td>
+              <td>£{{ order.total }}</td>
+              <td><span class="order-status status-{{ order.status }}">{{ order.get_status_display }}</span></td>
+              <td>{{ order.get_payment_status_display }}</td>
+              <td><button class="table-action" type="button" data-order-modal="manage-order-{{ order.pk }}">Manage</button></td>
+            </tr>
+          {% empty %}<tr><td colspan="9">No orders match your search.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
+  {% for order in orders %}
+    <template id="manage-order-{{ order.pk }}">
+      <div class="order-management-modal">
+        <div class="modal-heading"><div><p class="eyebrow">ORDER {{ order.order_reference|default:order.pk }}</p><h2>Manage order</h2></div><button class="modal-close" type="button" aria-label="Close order management">×</button></div>
+        <div class="modal-order-summary"><strong>{{ order.email }}</strong><span>{{ order.shipping_name }}</span><span>{{ order.shipping_address1 }}, {{ order.shipping_city }}, {{ order.shipping_postcode }}</span><span>Subtotal {{ order.currency }} {{ order.subtotal }} · Delivery {{ order.currency }} {{ order.shipping }} · Discount {{ order.currency }} {{ order.discount_amount }}</span><span>Total {{ order.currency }} {{ order.total }} · {{ order.created_at|date:'j F Y, H:i' }}</span>{% if order.refund_status %}<span>Refunded {{ order.currency }} {{ order.refunded_amount }} ({{ order.refund_status }})</span><span>Stripe refund: {{ order.stripe_refund_id }}</span>{% endif %}</div>
+        <div class="order-pdf-link"><label for="order-pdf-{{ order.pk }}">Order PDF link</label><div><input id="order-pdf-{{ order.pk }}" type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'control_order_pdf' order.pk %}"><button class="button outline" type="button" data-copy-target="order-pdf-{{ order.pk }}">Copy link</button><a class="button outline" href="{% url 'control_order_pdf' order.pk %}" target="_blank" rel="noopener">Open PDF</a></div></div>
+        <form method="post" class="management-form modal-form">{% csrf_token %}<input type="hidden" name="order_id" value="{{ order.pk }}">{{ order.management_form.as_p }}<button class="button" type="submit">Save order</button></form>
+        <form method="post" class="management-form modal-form refund-form">{% csrf_token %}<input type="hidden" name="action" value="refund_order"><input type="hidden" name="order_id" value="{{ order.pk }}"><label>Refund amount (leave blank for remaining balance)<input type="number" name="refund_amount" min="0.01" max="{{ order.total }}" step="0.01" placeholder="{{ order.total }}"></label><button class="button outline danger" type="submit" onclick="return confirm('Initiate this refund through Stripe?')">Initiate refund</button></form>
+      </div>
+    </template>
+  {% endfor %}
+</section>
+<div class="order-modal" hidden role="dialog" aria-modal="true" aria-label="Manage order"><div class="order-modal-backdrop"></div><div class="order-modal-panel"></div></div>
+</section>
+{% endblock %}

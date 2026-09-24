@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Delivery | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / DELIVERY</p><h1>Delivery pricing</h1><p>Manage delivery methods, prices and free-delivery thresholds.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section management-layout">
+  <div class="management-form"><h2>{% if editing %}Edit delivery option{% else %}Add delivery option{% endif %}</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Save delivery option</button>{% if editing %}<a class="button outline" href="{% url 'control_delivery' %}">Cancel</a>{% endif %}</form></div>
+  <div class="management-list"><h2>Delivery methods</h2>{% for option in options %}<div class="management-row"><div><strong>{{ option.label }}</strong><span>{{ option.code }} · £{{ option.price }}{% if option.free_over %} · Free over £{{ option.free_over }}{% endif %}</span></div><span>{% if option.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit={{ option.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="delivery_id" value="{{ option.pk }}"><button type="submit">Remove</button></form></div>{% empty %}<p>No delivery methods yet.</p>{% endfor %}</div>
+</section>
+{% endblock %}
