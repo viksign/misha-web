@@ -1,0 +1,9 @@
+{% extends 'two_factor/_base.html' %}
+{% block title %}Staff MFA enabled | MISHA{% endblock %}
+{% block content %}
+<h1>Authenticator enabled</h1>
+<p>Your staff account now requires an authenticator code to access Django admin and the control panel.</p>
+<p>Generate recovery codes and store them securely offline. Each code can be used only once if you lose access to your authenticator.</p>
+<p><a class="button" href="{% url 'two_factor:backup_tokens' %}">Generate recovery codes</a></p>
+<p><a href="{% url 'control_panel' %}">Continue to control panel</a></p>
+{% endblock %}

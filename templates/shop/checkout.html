@@ -4,16 +4,41 @@
 <section class="page-head">
 	<p class="eyebrow">SECURE CHECKOUT</p>
 	<h1>Complete your order</h1>
-	{% if request.user.is_authenticated %}<p>Your primary billing address comes from your account. Choose a saved shipping address or add a new one below.</p>{% endif %}
+	{% if request.user.is_authenticated %}<p>Your account address is prefilled. You can use it for delivery or choose a different shipping address.</p>{% endif %}
 	<p class="checkout-email-note">Your order confirmation and PDF will be sent by email. If you do not see it, please check your Junk or Spam folder.</p>
 </section>
 <section class="checkout">
 	<form method="post" class="checkout-form">
 		{% csrf_token %}
 		{{ form.non_field_errors }}
-		{% for field in form %}
-			<label class="checkout-field{% if field.name == 'billing_address' or field.name == 'shipping_address' %} saved-address-field{% endif %}{% if field.name == 'billing_address' or field.name == 'billing_name' or field.name == 'billing_address1' or field.name == 'billing_address2' or field.name == 'billing_city' or field.name == 'billing_postcode' or field.name == 'billing_country' %} billing-fields{% endif %}">{{ field.label }}{{ field }}{% for error in field.errors %}<small>{{ error }}</small>{% endfor %}</label>
-		{% endfor %}
+		<label class="checkout-field">{{ form.email.label }}{{ form.email }}{% for error in form.email.errors %}<small>{{ error }}</small>{% endfor %}</label>
+		<label class="checkout-field">{{ form.shipping_method.label }}{{ form.shipping_method }}{% for error in form.shipping_method.errors %}<small>{{ error }}</small>{% endfor %}</label>
+		<section class="checkout-address-fields">
+			<h2>Billing address</h2>
+			<label class="checkout-field saved-address-field">{{ form.billing_address.label }}{{ form.billing_address }}{% for error in form.billing_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
+			<div data-billing-new-fields>
+				<label class="checkout-field">{{ form.billing_name.label }}{{ form.billing_name }}{% for error in form.billing_name.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.billing_address1.label }}{{ form.billing_address1 }}{% for error in form.billing_address1.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.billing_address2.label }}{{ form.billing_address2 }}{% for error in form.billing_address2.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.billing_city.label }}{{ form.billing_city }}{% for error in form.billing_city.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.billing_postcode.label }}{{ form.billing_postcode }}{% for error in form.billing_postcode.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.billing_country.label }}{{ form.billing_country }}{% for error in form.billing_country.errors %}<small>{{ error }}</small>{% endfor %}</label>
+			</div>
+		</section>
+		<label class="checkout-different-address">{{ form.ship_to_different_address }}<span>Use a different shipping address</span>{% for error in form.ship_to_different_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
+		<section class="checkout-address-fields" data-shipping-address-fields hidden>
+			<h2>Shipping address</h2>
+			<label class="checkout-field saved-address-field">{{ form.shipping_address.label }}{{ form.shipping_address }}{% for error in form.shipping_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
+			<div data-shipping-new-fields>
+				<label class="checkout-field">{{ form.shipping_name.label }}{{ form.shipping_name }}{% for error in form.shipping_name.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.shipping_address1.label }}{{ form.shipping_address1 }}{% for error in form.shipping_address1.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.shipping_address2.label }}{{ form.shipping_address2 }}{% for error in form.shipping_address2.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.shipping_city.label }}{{ form.shipping_city }}{% for error in form.shipping_city.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.shipping_postcode.label }}{{ form.shipping_postcode }}{% for error in form.shipping_postcode.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.shipping_country.label }}{{ form.shipping_country }}{% for error in form.shipping_country.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				<label class="checkout-field">{{ form.save_shipping_address }}<span>{{ form.save_shipping_address.label }}</span></label>
+			</div>
+		</section>
 		<button class="button" type="submit">Place order</button>
 	</form>
 	<aside class="order-summary">
@@ -22,8 +47,13 @@
 		<hr>
 		<p>Subtotal <strong id="checkout-subtotal" data-subtotal="{{ cart.subtotal }}">£{{ cart.subtotal }}</strong></p>
 			<p>Delivery <strong id="checkout-delivery-cost">{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p>
+			<small class="delivery-rate-note" data-delivery-note>Delivery prices and estimated transit times depend on your destination.</small>
 			<p>Total <strong id="checkout-total">£{{ checkout_total }}</strong></p>
 	</aside>
 </section>
 {{ delivery_rates|json_script:'delivery-rates' }}
+{{ country_shipping_config|json_script:'country-shipping-config' }}
+{{ shipping_rate_data|json_script:'shipping-rates' }}
+{{ parcel_metrics|json_script:'parcel-metrics' }}
+{{ saved_checkout_addresses|json_script:'saved-checkout-addresses' }}
 {% endblock %}

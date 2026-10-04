@@ -1,14 +1,14 @@
 Hello {{ order.shipping_name }},
 
-Thank you for your order with MISHA Island Heritage.
+Thank you for choosing Misha Island Heritage. We have received your order and are now processing it with care.
 
 Order reference: {{ order.order_reference|default:order.pk }}
 Order status: {{ order.get_status_display }}
 
-Items:
+Order summary:
 {% for item in order.items.all %}- {{ item.quantity }} x {{ item.product_name }} at {{ order.currency }} {{ item.unit_price }}
 {% endfor %}
-Delivery: {{ order.currency }} {{ order.delivery_cost }}
+Delivery cost: {{ order.currency }} {{ order.delivery_cost }}
 Total: {{ order.currency }} {{ order.total }}
 
 Payment details:
@@ -25,6 +25,6 @@ Delivery address:
 {{ order.shipping_postcode }}
 {{ order.shipping_country }}
 
-We will contact you with the next steps.
+We will email you again when your order has been dispatched with the tracking details. A PDF copy of your order summary is included for your records.
 
 MISHA Island Heritage

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Stock History | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / INVENTORY</p><h1>Stock movement history</h1></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section stock-dashboard">
+  <form class="stock-search" method="get"><label for="history-search">Find a product, SKU or order</label><input id="history-search" name="q" value="{{ query }}" placeholder="Product, SKU or order number"><select name="reason" aria-label="Movement type"><option value="">All movements</option>{% for value, label in reason_choices %}<option value="{{ value }}"{% if reason == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select><button class="button" type="submit">Apply</button><a class="button outline" href="{% url 'control_stock_history' %}">Reset</a><a href="{% url 'control_stock' %}">Back to inventory</a></form>
+  <div class="stock-table-wrap"><table class="stock-table stock-history-table"><thead><tr><th>Date &amp; time</th><th>Product / SKU</th><th>Movement</th><th>Change</th><th>Before</th><th>After</th><th>Staff</th><th>Order</th></tr></thead><tbody>
+    {% for movement in movement_page %}<tr><td>{{ movement.created_at|date:'j M Y, H:i T' }}</td><td>{{ movement.product_name }}<small>{{ movement.sku }}</small></td><td>{{ movement.get_reason_display }}</td><td>{% if movement.quantity_change > 0 %}+{% endif %}{{ movement.quantity_change }}</td><td>{{ movement.balance_before }}</td><td>{{ movement.balance_after }}</td><td>{{ movement.actor_name|default:'System' }}</td><td>{{ movement.order_reference|default:'-' }}</td></tr>{% empty %}<tr><td colspan="8">No matching stock movements.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="order-results-count">{{ movement_page.paginator.count }} movement{{ movement_page.paginator.count|pluralize }} · Showing {{ movement_page.start_index }}–{{ movement_page.end_index }}</div>
+  {% if movement_page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Stock history pages">{% if movement_page.has_previous %}<a href="?{{ pagination_query }}&amp;page={{ movement_page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ movement_page.number }} of {{ movement_page.paginator.num_pages }}</span>{% if movement_page.has_next %}<a href="?{{ pagination_query }}&amp;page={{ movement_page.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

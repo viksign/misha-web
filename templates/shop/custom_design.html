@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Your Inspiration, Our Craft | MISHA{% endblock %}
+{% block content %}
+<section class="page-head custom-design-head">
+  <p class="eyebrow">YOUR INSPIRATION, OUR CRAFT</p>
+  <h1>Bring us your idea.</h1>
+  <p>Tell us what you imagine. Share the details, the story and a reference image, and our team will explore what is feasible.</p>
+</section>
+<section class="section custom-design-layout">
+  <div class="custom-design-form">
+    <h2>Submit your idea</h2>
+    <p class="form-intro">You are signed in as {{ request.user.email }}. We will use this account to discuss your request.</p>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {% for field in form %}<label>{{ field.label }}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>{% endfor %}
+      <button class="button" type="submit">Send request</button>
+    </form>
+  </div>
+  <div class="custom-design-notes">
+    <p class="eyebrow">A THOUGHTFUL START</p>
+    <h2>From a feeling to a finished piece.</h2>
+    <p>We review every request carefully. We may ask questions about size, materials, timing or budget before confirming whether we can make it.</p>
+    <p>Upload one clear reference image if it helps explain your idea. Please only share images you have permission to use.</p>
+  </div>
+</section>
+<section class="section custom-request-history">
+  <div class="section-head"><p class="eyebrow">YOUR REQUESTS</p><h2>Conversation history</h2></div>
+  {% for item in requests %}
+    <article class="custom-request-card"><div><span class="eyebrow">{{ item.get_status_display }}</span><h3>{{ item.title }}</h3><p>{{ item.product_details|truncatechars:180 }}</p></div><time>{{ item.created_at|date:'j M Y' }}</time>{% for reply in item.replies.all %}<div class="custom-request-reply"><strong>MISHA</strong><p>{{ reply.message|linebreaksbr }}</p><small>{{ reply.created_at|date:'j M Y, H:i' }}</small></div>{% endfor %}</article>
+  {% empty %}<p class="empty">Your submitted requests will appear here.</p>{% endfor %}
+</section>
+{% endblock %}

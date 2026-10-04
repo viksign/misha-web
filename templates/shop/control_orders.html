@@ -5,10 +5,26 @@
 {% include 'shop/_control_nav.html' %}
 <section class="section orders-management">
   <form class="order-search-bar" method="get">
+    <fieldset class="order-status-filters">
+      <legend>Order status</legend>
+      {% for value, label in status_choices %}
+        <label><input type="checkbox" name="status" value="{{ value }}"{% if value in selected_statuses %} checked{% endif %}>{{ label }}</label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="order-date-filters">
+      <legend>Order date range</legend>
+      <label for="order-start">From <input id="order-start" type="date" name="start" value="{{ start_date }}" required></label>
+      <label for="order-end">To <input id="order-end" type="date" name="end" value="{{ end_date }}" required></label>
+    </fieldset>
     <label for="order-search">Search by order number, customer email, or postcode</label>
     <input id="order-search" name="q" value="{{ query }}" placeholder="Order number, email, or postcode">
-    <button class="button" type="submit">Search orders</button>
-    {% if query %}<a class="button outline" href="{% url 'control_orders' %}">Clear</a>{% endif %}
+    <label for="order-sort">Order by</label>
+    <select id="order-sort" name="sort">
+      <option value="newest"{% if sort == 'newest' %} selected{% endif %}>Newest first</option>
+      <option value="oldest"{% if sort == 'oldest' %} selected{% endif %}>Oldest first</option>
+    </select>
+    <button class="button" type="submit">Apply</button>
+    {% if query or selected_statuses or date_range_changed %}<a class="button outline" href="{% url 'control_orders' %}?sort={{ sort }}">Reset filters</a>{% endif %}
   </form>
 
   <form method="post" class="orders-table-form">
@@ -25,7 +41,7 @@
     </div>
     <div class="orders-table-wrap">
       <table class="orders-table">
-        <thead><tr><th><input type="checkbox" data-select-all aria-label="Select all orders"></th><th>Order</th><th>Customer</th><th>Postcode</th><th>Date</th><th>Total</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead>
+        <thead><tr><th><input type="checkbox" data-select-all aria-label="Select all orders"></th><th>Order</th><th>Customer</th><th>Postcode</th><th>Date &amp; time</th><th>Total</th><th>Status</th><th>Processing by</th><th>Payment</th><th>Dispatch email</th><th>Action</th></tr></thead>
         <tbody>
           {% for order in orders %}
             <tr class="order-table-row">
@@ -33,26 +49,80 @@
               <td><strong>{{ order.order_reference|default:order.pk }}</strong></td>
               <td><span>{{ order.email }}</span><small>{{ order.shipping_name }}</small></td>
               <td>{{ order.shipping_postcode }}</td>
-              <td>{{ order.created_at|date:'j M Y' }}</td>
+              <td><time datetime="{{ order.created_at|date:'c' }}">{{ order.created_at|date:'j M Y, H:i T' }}</time></td>
               <td>£{{ order.total }}</td>
               <td><span class="order-status status-{{ order.status }}">{{ order.get_status_display }}</span></td>
+              <td>{{ order.processor_name }}</td>
               <td>{{ order.get_payment_status_display }}</td>
+              <td>{% if order.status == 'shipped' %}{% if order.tracking_email_sent_at %}<span class="dispatch-email-status is-sent">Sent</span>{% else %}<span class="dispatch-email-status is-pending">Not sent</span>{% endif %}{% else %}<span class="dispatch-email-status">—</span>{% endif %}</td>
               <td><button class="table-action" type="button" data-order-modal="manage-order-{{ order.pk }}">Manage</button></td>
             </tr>
-          {% empty %}<tr><td colspan="9">No orders match your search.</td></tr>{% endfor %}
+          {% empty %}<tr><td colspan="11">No orders match your search.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
   </form>
 
+  <div class="order-results-count">{{ order_page.paginator.count }} order{{ order_page.paginator.count|pluralize }} · Showing {{ order_page.start_index }}–{{ order_page.end_index }}</div>
+  {% if order_page.paginator.num_pages > 1 %}
+    <nav class="pagination" aria-label="Order pages">
+      {% if order_page.has_previous %}<a href="?{{ pagination_query }}&amp;page=1">First</a><a href="?{{ pagination_query }}&amp;page={{ order_page.previous_page_number }}">Previous</a>{% endif %}
+      <span>Page {{ order_page.number }} of {{ order_page.paginator.num_pages }}</span>
+      {% if order_page.has_next %}<a href="?{{ pagination_query }}&amp;page={{ order_page.next_page_number }}">Next</a><a href="?{{ pagination_query }}&amp;page={{ order_page.paginator.num_pages }}">Last</a>{% endif %}
+    </nav>
+  {% endif %}
+
   {% for order in orders %}
     <template id="manage-order-{{ order.pk }}">
       <div class="order-management-modal">
         <div class="modal-heading"><div><p class="eyebrow">ORDER {{ order.order_reference|default:order.pk }}</p><h2>Manage order</h2></div><button class="modal-close" type="button" aria-label="Close order management">×</button></div>
-        <div class="modal-order-summary"><strong>{{ order.email }}</strong><span>{{ order.shipping_name }}</span><span>{{ order.shipping_address1 }}, {{ order.shipping_city }}, {{ order.shipping_postcode }}</span><span>Subtotal {{ order.currency }} {{ order.subtotal }} · Delivery {{ order.currency }} {{ order.shipping }} · Discount {{ order.currency }} {{ order.discount_amount }}</span><span>Total {{ order.currency }} {{ order.total }} · {{ order.created_at|date:'j F Y, H:i' }}</span>{% if order.refund_status %}<span>Refunded {{ order.currency }} {{ order.refunded_amount }} ({{ order.refund_status }})</span><span>Stripe refund: {{ order.stripe_refund_id }}</span>{% endif %}</div>
+          <div class="modal-order-summary">
+            <table class="modal-summary-table">
+              <tr><th scope="row">Customer</th><td>{{ order.email }}<br>{{ order.shipping_name }}</td></tr>
+              <tr><th scope="row">Order date</th><td>{{ order.created_at|date:'j M Y, H:i' }}</td></tr>
+              <tr><th scope="row">Subtotal</th><td>{{ order.currency }} {{ order.subtotal }}</td></tr>
+              <tr><th scope="row">Delivery</th><td>{{ order.currency }} {{ order.shipping }}</td></tr>
+              <tr><th scope="row">Discount</th><td>{{ order.currency }} {{ order.discount_amount }}</td></tr>
+              <tr class="summary-total"><th scope="row">Total</th><td><strong>{{ order.currency }} {{ order.total }}</strong></td></tr>
+            </table>
+            <div class="modal-detail-grid">
+              <section>
+                <h3>Delivery address</h3>
+                <table class="modal-summary-table">
+                  <tr><th scope="row">Name</th><td>{{ order.shipping_name }}</td></tr>
+                  <tr><th scope="row">Address</th><td>{{ order.shipping_address1 }}{% if order.shipping_address2 %}<br>{{ order.shipping_address2 }}{% endif %}</td></tr>
+                  <tr><th scope="row">Town / city</th><td>{{ order.shipping_city }}</td></tr>
+                  <tr><th scope="row">Postcode</th><td>{{ order.shipping_postcode }}</td></tr>
+                  <tr><th scope="row">Country</th><td>{{ order.shipping_country }}</td></tr>
+                </table>
+              </section>
+              <section class="payment-panel">
+                <h3>Payment details</h3>
+                <table class="modal-summary-table">
+                  <tr><th scope="row">Status</th><td><span class="order-status status-{{ order.payment_status }}">{{ order.get_payment_status_display }}</span></td></tr>
+                  <tr><th scope="row">Method</th><td>{{ order.payment_method|default:'Pending Stripe confirmation' }}</td></tr>
+                  <tr><th scope="row">Transaction</th><td class="transaction-value">{{ order.transaction_id|default:'Pending Stripe confirmation' }}</td></tr>
+                  <tr><th scope="row">Payment date</th><td>{% if order.payment_date %}{{ order.payment_date|date:'j M Y, H:i T' }}{% else %}Pending Stripe confirmation{% endif %}</td></tr>
+                </table>
+              </section>
+            </div>
+            <section class="order-fulfilment-timeline">
+              <h3>Fulfilment timeline</h3>
+              <table class="modal-summary-table">
+                <tr><th scope="row">Order placed</th><td>{{ order.created_at|date:'j M Y, H:i' }}</td></tr>
+                <tr><th scope="row">Payment confirmed</th><td>{% if order.paid_at %}{{ order.paid_at|date:'j M Y, H:i' }}{% else %}Not recorded{% endif %}</td></tr>
+                <tr><th scope="row">Processing started</th><td>{% if order.processing_started_at %}{{ order.processing_started_at|date:'j M Y, H:i' }}{% if order.paid_at %}<br><small>Waiting time: {{ order.paid_at|timesince:order.processing_started_at }}</small>{% endif %}{% else %}Not recorded{% endif %}</td></tr>
+                <tr><th scope="row">Shipped</th><td>{% if order.shipped_at %}{{ order.shipped_at|date:'j M Y, H:i' }}{% if order.processing_started_at %}<br><small>Processing time: {{ order.processing_started_at|timesince:order.shipped_at }}</small>{% endif %}{% else %}Not recorded{% endif %}</td></tr>
+                <tr><th scope="row">Completed</th><td>{% if order.completed_at %}{{ order.completed_at|date:'j M Y, H:i' }}{% if order.shipped_at %}<br><small>Delivery time: {{ order.shipped_at|timesince:order.completed_at }}</small>{% endif %}{% if order.paid_at %}<br><small>Total fulfilment time: {{ order.paid_at|timesince:order.completed_at }}</small>{% endif %}{% else %}Not recorded{% endif %}</td></tr>
+                {% if order.status == 'pending' and order.paid_at %}<tr><th scope="row">Awaiting processing</th><td>{{ order.paid_at|timesince }}</td></tr>{% elif order.status == 'processing' and order.processing_started_at %}<tr><th scope="row">Processing so far</th><td>{{ order.processing_started_at|timesince }}</td></tr>{% elif order.status == 'shipped' and order.shipped_at %}<tr><th scope="row">Delivery so far</th><td>{{ order.shipped_at|timesince }}</td></tr>{% endif %}
+              </table>
+            </section>
+            {% if order.refund_status %}<table class="modal-summary-table modal-refund-table"><tr><th scope="row">Refund</th><td>{{ order.currency }} {{ order.refunded_amount }} ({{ order.refund_status }})<br>Stripe refund: {{ order.stripe_refund_id }}</td></tr></table>{% endif %}
+          </div>
         <div class="order-pdf-link"><label for="order-pdf-{{ order.pk }}">Order PDF link</label><div><input id="order-pdf-{{ order.pk }}" type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'control_order_pdf' order.pk %}"><button class="button outline" type="button" data-copy-target="order-pdf-{{ order.pk }}">Copy link</button><a class="button outline" href="{% url 'control_order_pdf' order.pk %}" target="_blank" rel="noopener">Open PDF</a></div></div>
-        <form method="post" class="management-form modal-form">{% csrf_token %}<input type="hidden" name="order_id" value="{{ order.pk }}">{{ order.management_form.as_p }}<button class="button" type="submit">Save order</button></form>
-        <form method="post" class="management-form modal-form refund-form">{% csrf_token %}<input type="hidden" name="action" value="refund_order"><input type="hidden" name="order_id" value="{{ order.pk }}"><label>Refund amount (leave blank for remaining balance)<input type="number" name="refund_amount" min="0.01" max="{{ order.total }}" step="0.01" placeholder="{{ order.total }}"></label><button class="button outline danger" type="submit" onclick="return confirm('Initiate this refund through Stripe?')">Initiate refund</button></form>
+        <form method="post" class="management-form modal-form" data-order-management-form>{% csrf_token %}<input type="hidden" name="order_id" value="{{ order.pk }}">{{ order.management_form.as_p }}<button class="button" type="submit" data-order-save>Save order</button></form>
+        {% if order.refund_notes %}<section><h3>Refund notes</h3><p>{{ order.refund_notes|linebreaksbr }}</p></section>{% endif %}
+        <form method="post" class="management-form modal-form refund-form">{% csrf_token %}<input type="hidden" name="action" value="refund_order"><input type="hidden" name="order_id" value="{{ order.pk }}"><label>Refund amount (leave blank for remaining balance)<input type="number" name="refund_amount" min="0.01" max="{{ order.total }}" step="0.01" placeholder="{{ order.total }}"></label><label>Refund reason<textarea name="refund_notes" rows="3" maxlength="2000" required placeholder="Enter the reason for this refund"></textarea></label><button class="button outline danger" type="submit" onclick="return confirm('Initiate this refund through Stripe?')">Initiate refund</button></form>
       </div>
     </template>
   {% endfor %}

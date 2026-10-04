@@ -1,0 +1,5 @@
+<figure class="operations-chart" data-dashboard-chart data-source="{{ chart_url }}?{{ finance_query }}" data-currency="{{ window.currency }}"{% if chart_type %} data-chart-type="{{ chart_type }}"{% endif %} data-empty="{{ chart_empty }}">
+  <figcaption>{{ chart_caption }}</figcaption>
+  <div class="operations-chart-canvas"><canvas aria-label="{{ chart_caption }}" role="img"></canvas></div>
+  <p class="operations-chart-status" role="status">Loading chart...</p><button type="button" data-chart-retry hidden>Retry</button>
+</figure>

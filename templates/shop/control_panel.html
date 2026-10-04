@@ -1,50 +1,63 @@
 {% extends 'base.html' %}
-{% block title %}Control Panel | MISHA{% endblock %}
+{% load static %}
+{% block title %}Operations Dashboard | MISHA{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head operations-page-head">
   <p class="eyebrow">STAFF AREA</p>
-  <h1>Control panel</h1>
-  <p>Manage products, stock, orders and delivery pricing from one place.</p>
+  <h1>Operations dashboard</h1>
+  <p>{{ dashboard_updated_at|date:'j M Y, H:i T' }} · Inventory now · Orders all time</p>
 </section>
-
 {% include 'shop/_control_nav.html' %}
-
-<section class="section control-panel">
-  <div class="control-stats">
-    <div><strong>{{ active_product_count }}</strong><span>Active products</span></div>
-    <div><strong>{{ low_stock_count }}</strong><span>Low-stock products</span></div>
-    <div><strong>{{ pending_order_count }}</strong><span>Open orders</span></div>
-    <div><strong>{{ delivery_count }}</strong><span>Delivery options</span></div>
+<main class="operations-dashboard">
+  <div class="operations-summary">
+    <div><span>Available units</span><strong>{{ inventory_counts.units }}</strong><small>{{ inventory_counts.products }} active products</small></div>
+    <div><span>Awaiting processing</span><strong>{{ fulfilment_counts.waiting }}</strong><small>Paid orders</small></div>
+    <div><span>Processing</span><strong>{{ fulfilment_counts.processing }}</strong><small>{{ unassigned_processing_count }} unassigned</small></div>
+    <div><span>Stock alerts</span><strong>{{ inventory_counts.low|add:inventory_counts.empty }}</strong><small>{{ inventory_counts.low }} low · {{ inventory_counts.empty }} unavailable</small></div>
   </div>
-
-  <div class="control-grid">
-    <a class="control-card" href="{% url 'control_products' %}">
-      <span class="eyebrow">CATALOGUE</span><h2>Products</h2><p>Add, remove, edit prices, update stock and control visibility.</p><span class="control-link">Open product manager</span>
-    </a>
-    <a class="control-card" href="{% url 'control_stock' %}">
-      <span class="eyebrow">INVENTORY</span><h2>Stock dashboard</h2><p>Monitor stock levels and update quantities quickly from one table.</p><span class="control-link">Open stock dashboard</span>
-    </a>
-    <a class="control-card" href="{% url 'control_orders' %}">
-      <span class="eyebrow">FULFILMENT</span><h2>Orders</h2><p>Review customer orders, payment status, delivery details and order items.</p><span class="control-link">Open order manager</span>
-    </a>
-    <a class="control-card" href="{% url 'control_sales' %}">
-      <span class="eyebrow">FINANCE</span><h2>Sales dashboard</h2><p>Revenue, cost of goods, margin, forecasts and stock replenishment budgeting.</p><span class="control-link">Open sales dashboard</span>
-    </a>
-    <a class="control-card" href="{% url 'control_delivery' %}">
-      <span class="eyebrow">DELIVERY</span><h2>Delivery pricing</h2><p>Change UK Standard, UK Express and International prices or free-delivery thresholds.</p><span class="control-link">Manage delivery prices</span>
-    </a>
-    <a class="control-card" href="{% url 'control_collections' %}">
-      <span class="eyebrow">ORGANISATION</span><h2>Collections</h2><p>Create and maintain the collections shown throughout the shop.</p><span class="control-link">Manage collections</span>
-    </a>
-    <a class="control-card" href="{% url 'control_analytics' %}">
-      <span class="eyebrow">VISITORS</span><h2>Site activity</h2><p>Review page views, clicks, IP addresses and available location data.</p><span class="control-link">Open analytics</span>
-    </a>
-    <a class="control-card" href="{% url 'control_users' %}">
-      <span class="eyebrow">ACCOUNTS</span><h2>Users</h2><p>Enable or disable customer accounts, check last login and review their activity.</p><span class="control-link">Manage users</span>
-    </a>
-    <a class="control-card" href="{% url 'control_reviews' %}">
-      <span class="eyebrow">CUSTOMER VOICE</span><h2>Reviews &amp; feedback</h2><p>Review enquiries and approve only the customer reviews you want displayed publicly.</p><span class="control-link">Moderate reviews</span>
-    </a>
-  </div>
-</section>
+  <section class="operations-section" aria-labelledby="inventory-heading">
+    <header class="operations-section-heading"><div><p class="eyebrow">01 / INVENTORY</p><h2 id="inventory-heading">Inventory</h2></div><a href="{% url 'control_stock' %}">Manage stock</a></header>
+    <div class="operations-section-grid">
+      <figure class="operations-chart" data-dashboard-chart data-source="{% url 'dashboard_inventory_chart' %}" data-empty="No active products.">
+        <figcaption>Stock health across all active products</figcaption><div class="operations-chart-canvas"><canvas aria-label="Healthy, low-stock and out-of-stock product counts with pre-order interest" role="img"></canvas></div>
+        <p class="operations-chart-status" role="status">Loading inventory...</p><button type="button" data-chart-retry hidden>Retry</button>
+      </figure>
+      <div class="operations-detail">
+        <div class="operations-inline-metrics"><div><strong>{{ inventory_counts.healthy }}</strong><span>Healthy stock</span></div><div><strong>{{ inventory_counts.low }}</strong><span>Low stock</span></div><div><strong>{{ inventory_counts.empty }}</strong><span>Out of stock</span></div><div><strong>{{ inventory_preorder_interest_count }}</strong><span>Pre-order interest</span></div></div>
+        <div class="operations-table-wrap"><table class="operations-table"><caption>Priority replenishment · Up to 12 products</caption><thead><tr><th>Product</th><th>Available</th><th>Reorder at</th><th>Target</th><th>Replenish</th><th>Pre-order interest</th><th>Action</th></tr></thead><tbody>
+          {% for product in inventory_products %}<tr><td>{{ product.name }}<small>{{ product.sku }}</small></td><td>{{ product.stock_quantity }}</td><td>{{ product.reorder_level }}</td><td>{{ product.restock_target }}</td><td>{{ product.replenishment_units }}</td><td>{{ product.preorder_interest_count }}</td><td><a href="{% url 'control_stock' %}?q={{ product.sku|urlencode }}">Review</a></td></tr>{% empty %}<tr><td colspan="7">No products need replenishment.</td></tr>{% endfor %}
+        </tbody></table></div>
+      </div>
+    </div>
+  </section>
+  <section class="operations-section" aria-labelledby="fulfilment-heading">
+    <header class="operations-section-heading"><div><p class="eyebrow">02 / ORDERS</p><h2 id="fulfilment-heading">Order fulfilment</h2></div><a href="{% url 'control_orders' %}">Manage orders</a></header>
+    <div class="operations-stage-counts"><div><span class="stage-marker is-warning"></span><strong>{{ fulfilment_counts.waiting }}</strong><span>Pending</span></div><div><span class="stage-marker is-processing"></span><strong>{{ fulfilment_counts.processing }}</strong><span>Processing</span></div><div><span class="stage-marker is-ready"></span><strong>{{ fulfilment_counts.shipped }}</strong><span>Shipped</span></div><div><span class="stage-marker is-complete"></span><strong>{{ fulfilment_counts.completed }}</strong><span>Completed</span></div></div>
+    <div class="operations-section-grid">
+      <figure class="operations-chart" data-dashboard-chart data-source="{% url 'dashboard_fulfilment_chart' %}" data-empty="No paid orders yet.">
+        <figcaption>Paid orders by fulfilment stage</figcaption><div class="operations-chart-canvas"><canvas aria-label="Paid order fulfilment stages" role="img"></canvas></div>
+        <p class="operations-chart-status" role="status">Loading orders...</p><button type="button" data-chart-retry hidden>Retry</button>
+      </figure>
+      <div class="operations-detail"><h3>Fulfilment timing</h3><dl class="operations-duration-list"><div><dt>Average wait to start</dt><dd>{{ fulfilment_averages.waiting }}</dd></div><div><dt>Average processing</dt><dd>{{ fulfilment_averages.processing }}</dd></div><div><dt>Average delivery</dt><dd>{{ fulfilment_averages.delivery }}</dd></div><div><dt>Average total fulfilment</dt><dd>{{ fulfilment_averages.total }}</dd></div></dl></div>
+    </div>
+    <div class="operations-table-wrap"><table class="operations-table"><caption>Oldest active orders · Up to 20</caption><thead><tr><th>Order</th><th>Stage</th><th>Processing by</th><th>Time in stage</th><th>Action</th></tr></thead><tbody>
+      {% for order in fulfilment_queue %}<tr><td>{{ order.order_reference|default:order.pk }}</td><td>{{ order.get_status_display }}</td><td>{{ order.processor_name }}</td><td>{{ order.stage_duration }}</td><td><a href="{% url 'control_orders' %}?q={{ order.order_reference|default:order.email|urlencode }}&amp;start={{ order.created_at|date:'Y-m-d' }}&amp;end={{ dashboard_updated_at|date:'Y-m-d' }}">Manage</a></td></tr>{% empty %}<tr><td colspan="5">No active orders.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="operations-section" aria-labelledby="team-heading">
+    <header class="operations-section-heading"><div><p class="eyebrow">03 / TEAM</p><h2 id="team-heading">Team workload</h2></div><a href="{% url 'control_users' %}">Team accounts</a></header>
+    <div class="operations-section-grid">
+      <figure class="operations-chart" data-dashboard-chart data-chart-type="doughnut" data-source="{% url 'dashboard_team_chart' %}" data-empty="No orders are being processed.">
+        <figcaption>Share of processing orders by staff member</figcaption><div class="operations-chart-canvas"><canvas aria-label="Staff percentage share of paid processing orders" role="img"></canvas><div class="operations-donut-total" data-donut-total hidden><strong>0</strong><span>Processing orders</span></div></div>
+        <ul class="operations-chart-legend" data-chart-legend hidden></ul>
+        <p class="operations-chart-status" role="status">Loading team...</p><button type="button" data-chart-retry hidden>Retry</button>
+      </figure>
+      <div class="operations-detail"><div class="operations-table-wrap"><table class="operations-table"><caption>Staff assignments and timing</caption><thead><tr><th>Staff member</th><th>Processing</th><th>Completed</th><th>Average processing</th><th>Oldest in progress</th></tr></thead><tbody>
+        {% for member in processing_workload %}<tr><td>{{ member.name }}</td><td>{{ member.order_count }}</td><td>{{ member.completed_count }}</td><td>{{ member.average_processing }}</td><td>{% if member.oldest_started_at %}{{ member.oldest_started_at|timesince }}{% else %}Not recorded{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No staff-assigned orders.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    </div>
+  </section>
+</main>
+<script defer src="{% static 'js/chart.umd.min.js' %}?v=4.5.1"></script>
+<script defer src="{% static 'js/dashboard.js' %}?v=20261004-analytics"></script>
 {% endblock %}

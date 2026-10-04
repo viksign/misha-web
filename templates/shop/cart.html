@@ -13,9 +13,34 @@
 			<select id="shipping_method" name="shipping_method" onchange="this.form.submit()">
 				{% for value, label in delivery_options %}<option value="{{ value }}"{% if value == selected_delivery %} selected{% endif %}>{{ label }}{% if value == 'standard_uk' and cart.subtotal >= 100 %} - Free{% endif %}</option>{% endfor %}
 			</select>
+			<small>Final delivery is confirmed at checkout based on destination and parcel size.</small>
 			<noscript><button class="button outline" type="submit">Update delivery</button></noscript>
 		</form>
-		<div class="summary"><p>Subtotal <strong>£{{ cart.subtotal }}</strong></p><p>{{ selected_delivery|title }} <strong>{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p><h2>Total <strong>£{{ cart_total }}</strong></h2><a class="button" href="{% url 'checkout' %}">Proceed to checkout</a></div>
+		<div class="summary"><p>Subtotal <strong>£{{ cart.subtotal }}</strong></p><p>{{ selected_delivery|title }} estimate <strong>{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p><h2>Estimated total <strong>£{{ cart_total }}</strong></h2><a class="button" href="{% url 'checkout' %}">Proceed to checkout</a></div>
 	{% endif %}
 </section>
+{% if suggested_products %}
+<section class="section bag-recommendations">
+	<div class="section-head">
+		<p class="eyebrow">COMPLETE YOUR ORDER</p>
+		<h2>You may also like</h2>
+	</div>
+	<div class="grid">
+		{% for product in suggested_products %}
+			<article class="product-card">
+				<a href="{{ product.get_absolute_url }}" class="product-image" data-product-id="{{ product.pk }}">
+					{% if product.primary_image %}<img src="{{ product.primary_image.image.url }}" alt="{{ product.primary_image.alt_text|default:product.name }}" loading="lazy">{% else %}<span>✿</span>{% endif %}
+				</a>
+				<div class="product-info"><div><h3><a href="{{ product.get_absolute_url }}">{{ product.name }}</a></h3><p>{{ product.material }}</p></div><strong>£{{ product.price }}</strong></div>
+				<form method="post" action="{% url 'add_to_cart' product.pk %}">
+					{% csrf_token %}
+					<input type="hidden" name="quantity" value="1">
+					<input type="hidden" name="next" value="{% url 'cart' %}">
+					<button class="button" type="submit">Add to bag</button>
+				</form>
+			</article>
+		{% endfor %}
+	</div>
+</section>
+{% endif %}
 {% endblock %}

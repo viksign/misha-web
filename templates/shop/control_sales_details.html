@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Finance Details | MISHA{% endblock %}
+{% block content %}
+<section class="page-head operations-page-head finance-page-head"><p class="eyebrow">CONTROL PANEL / FINANCE</p><h1>{% if kind == 'refunds' %}Refund reconciliation{% elif kind == 'failures' %}Payment failure reconciliation{% elif section == 'reconciliation' %}Card reconciliation{% elif section == 'replenishment' %}Replenishment budget{% else %}Completed sales{% endif %}</h1><p>{{ window.start|date:'j M Y' }} – {{ window.end|date:'j M Y' }} (end exclusive) · {{ window.currency }}</p></section>
+{% include 'shop/_control_nav.html' %}
+<main class="operations-dashboard finance-dashboard"><a href="{% url 'control_sales' %}?{{ finance_query }}">Back to sales dashboard</a>
+  {% if section == 'reconciliation' %}
+    {% if not reconciliation.last_sync or reconciliation.last_sync.status != 'complete' %}<p class="finance-notice">Stripe data is not fully synced; reconciliation is provisional.</p>{% endif %}
+    {% if kind == 'refunds' %}<p class="finance-data-note">Refunds to date grouped by original payment date, not refund date. Initial reasons are recorded when initiating a refund from the order form. Use Edit to add additional notes; existing notes cannot be replaced or removed. Staff notes are internal and do not change the reconciliation result. Notes on Stripe transactions remain available if the order is deleted.</p>{% elif kind == 'failures' %}<p class="finance-data-note">Attempted amounts only; excluded from revenue. Multiple attempts can belong to one order. System dates fall back to order creation when no payment date is recorded.</p>{% endif %}
+    <div class="operations-table-wrap"><table class="operations-table finance-detail-table">
+      <thead><tr><th>Date</th><th>Stripe transaction</th><th>Order</th><th>{% if kind == 'refunds' %}Stripe refund{% elif kind == 'failures' %}Stripe failed amount{% else %}Stripe net{% endif %}</th><th>{% if kind == 'refunds' %}System refund{% elif kind == 'failures' %}System failed amount{% else %}System net{% endif %}</th><th>{% if kind %}System payment status{% else %}Fee{% endif %}</th><th>Result</th>{% if kind == 'refunds' %}<th>Notes</th>{% endif %}</tr></thead>
+      <tbody>{% for entry in detail_page %}<tr>
+        <td>{{ entry.occurred_at|date:'j M Y, H:i' }}</td>
+        <td>{{ entry.receipt.stripe_id|default:'Not available' }}</td>
+        <td>{% if entry.order %}{{ entry.order.order_reference|default:entry.order.pk }}{% else %}Unmatched{% endif %}</td>
+        <td>{% if kind == 'refunds' %}{{ entry.stripe_refund|floatformat:2 }}{% elif kind == 'failures' %}{{ entry.stripe_failed_amount|floatformat:2 }}{% else %}{{ entry.stripe_net|floatformat:2 }}{% endif %}</td>
+        <td>{% if kind == 'refunds' %}{{ entry.local_refund|floatformat:2 }}{% elif kind == 'failures' %}{{ entry.local_failed_amount|floatformat:2 }}{% else %}{{ entry.local_net|floatformat:2 }}{% endif %}</td>
+        <td>{% if kind %}{{ entry.order.get_payment_status_display|default:'Unmatched' }}{% else %}{{ entry.receipt.fee|floatformat:2|default:'Unknown' }}{% endif %}</td>
+        <td>{{ entry.status }}</td>
+        {% if kind == 'refunds' %}<td>
+          <p>{{ entry.notes|default:'No refund notes recorded.'|linebreaksbr }}</p>
+          {% if entry.editing_notes %}
+          <form class="finance-refund-notes" method="post">
+            {% csrf_token %}<input type="hidden" name="action" value="append_refund_notes">
+            {% if entry.receipt %}<input type="hidden" name="receipt_id" value="{{ entry.receipt.pk }}">{% else %}<input type="hidden" name="order_id" value="{{ entry.order.pk }}">{% endif %}
+            {{ entry.notes_form.refund_notes.label_tag }}{{ entry.notes_form.refund_notes }}{{ entry.notes_form.refund_notes.errors }}
+            <button class="button" type="submit">Add notes</button>
+            <a href="?{{ finance_query }}&amp;page={{ detail_page.number }}">Cancel</a>
+          </form>
+          {% else %}<a href="?{{ finance_query }}&amp;page={{ detail_page.number }}&amp;edit_notes={{ entry.notes_key }}">Edit</a>{% endif %}
+        </td>{% endif %}
+      </tr>{% empty %}<tr><td colspan="{% if kind == 'refunds' %}8{% else %}7{% endif %}">No transactions in this period.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif section == 'replenishment' %}
+    <p>{{ window.currency }} {{ budget.total|floatformat:2 }} needed · Current inventory</p>{% if budget.zero_cost_count %}<p class="finance-notice">{{ budget.zero_cost_count }} products have no unit cost recorded.</p>{% endif %}
+    <div class="operations-table-wrap"><table class="operations-table"><thead><tr><th>Product</th><th>Stock</th><th>Reorder at</th><th>Target</th><th>Units needed</th><th>Unit cost</th><th>Budget</th><th>Action</th></tr></thead><tbody>{% for entry in detail_page %}<tr><td>{{ entry.product.name }}<small>{{ entry.product.sku }}</small></td><td>{{ entry.product.stock_quantity }}</td><td>{{ entry.product.reorder_level }}</td><td>{{ entry.product.restock_target }}</td><td>{{ entry.qty_needed }}</td><td>{{ entry.product.cost_price|floatformat:2 }}</td><td>{{ entry.line_cost|floatformat:2 }}</td><td><a href="{% url 'control_stock' %}?q={{ entry.product.sku|urlencode }}">Review stock</a></td></tr>{% empty %}<tr><td colspan="8">No replenishment required.</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}
+    <div class="operations-table-wrap"><table class="operations-table"><thead><tr><th>Completed</th><th>Order</th><th>Customer / recipient</th><th>Payment channel</th><th>Gross</th><th>Refunds</th><th>Payment reference</th></tr></thead><tbody>{% for order in detail_page %}<tr><td>{{ order.completed_at|date:'j M Y, H:i' }}</td><td>{{ order.order_reference|default:order.pk }}</td><td>{{ order.shipping_name }}</td><td>{{ order.get_payment_channel_display }}</td><td>{{ order.total|floatformat:2 }}</td><td>{{ order.refunded_amount|floatformat:2 }}</td><td>{{ order.manual_payment_reference|default:order.transaction_id|default:'Not recorded' }}</td></tr>{% empty %}<tr><td colspan="7">No completed entries in this period.</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
+  <div class="order-results-count">{{ detail_page.paginator.count }} records · Showing {{ detail_page.start_index }}–{{ detail_page.end_index }}</div>
+  {% if detail_page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Finance detail pages">{% if detail_page.has_previous %}<a href="?{{ finance_query }}&amp;page={{ detail_page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ detail_page.number }} of {{ detail_page.paginator.num_pages }}</span>{% if detail_page.has_next %}<a href="?{{ finance_query }}&amp;page={{ detail_page.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+</main>
+{% endblock %}

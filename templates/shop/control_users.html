@@ -1,29 +1,39 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Users | Control Panel{% endblock %}
 {% block content %}
-<section class="page-head"><p class="eyebrow">CONTROL PANEL / ACCOUNTS</p><h1>Users</h1><p>Manage customer accounts, enable or disable access, and review activity.</p></section>
+<section class="page-head operations-page-head finance-page-head"><p class="eyebrow">CONTROL PANEL / ACCOUNTS</p><h1>Users &amp; customer activity</h1><p>Account activity · All-time linked records</p></section>
 {% include 'shop/_control_nav.html' %}
-<section class="section product-catalogue-section">
-  <form class="catalogue-search" method="get" style="margin-bottom: 24px;">
+<main class="operations-dashboard users-dashboard">
+  <form class="stock-search" method="get">
     <label for="user-search">Search users</label>
     <input id="user-search" type="search" name="q" value="{{ query }}" placeholder="Name, username or email">
-    <button class="button" type="submit">Search</button>
-    {% if query %}<a class="button outline" href="{% url 'control_users' %}">Clear</a>{% endif %}
+    <select name="role" aria-label="Account role"><option value="all"{% if filters.role == 'all' %} selected{% endif %}>All roles</option><option value="staff"{% if filters.role == 'staff' %} selected{% endif %}>Staff only</option><option value="customer"{% if filters.role == 'customer' %} selected{% endif %}>Customers only</option></select>
+    <select name="state" aria-label="Account status"><option value="all"{% if filters.state == 'all' %} selected{% endif %}>All statuses</option><option value="active"{% if filters.state == 'active' %} selected{% endif %}>Active</option><option value="disabled"{% if filters.state == 'disabled' %} selected{% endif %}>Disabled</option></select>
+    <select name="sort" aria-label="Account sort order"><option value="newest"{% if filters.sort == 'newest' %} selected{% endif %}>Newest accounts</option><option value="oldest"{% if filters.sort == 'oldest' %} selected{% endif %}>Oldest accounts</option><option value="name"{% if filters.sort == 'name' %} selected{% endif %}>Name</option><option value="orders"{% if filters.sort == 'orders' %} selected{% endif %}>Most orders</option><option value="preorders"{% if filters.sort == 'preorders' %} selected{% endif %}>Most pre-order requests</option></select>
+    <button class="button" type="submit">Apply</button><a class="button outline" href="{% url 'control_users' %}">Reset</a>
   </form>
-  <div class="product-catalogue-heading"><div><p class="eyebrow">ACCOUNTS</p><h2>All users</h2></div><span>{{ users|length }} result{{ users|length|pluralize }}</span></div>
-  <div class="product-table-wrap">
-    <table class="product-table">
-      <thead><tr><th>User</th><th>Last login</th><th>Joined</th><th>Orders</th><th>Activity</th><th>Status</th><th>Actions</th></tr></thead>
+  <div class="operations-summary"><div><span>Matching accounts</span><strong>{{ summary.accounts }}</strong><small>{{ summary.active }} active · {{ summary.disabled }} disabled</small></div><div><span>Staff accounts</span><strong>{{ summary.staff }}</strong><small>{{ summary.customers }} customer accounts</small></div><div><span>Orders placed</span><strong>{{ summary.orders }}</strong><small>{{ summary.preorders }} pre-order requests</small></div><div><span>Customer requests</span><strong>{{ summary.custom_requests|add:summary.enquiries }}</strong><small>{{ summary.feedback }} reviews / feedback</small></div></div>
+  <section class="operations-section"><div class="operations-section-grid">
+    <figure class="operations-chart" data-dashboard-chart data-chart-type="doughnut" data-unit="account" data-source="{% url 'users_role_chart' %}?{{ user_query }}" data-empty="No matching accounts."><figcaption>Staff and customer accounts</figcaption><div class="operations-chart-canvas"><canvas aria-label="Staff and customer account percentages" role="img"></canvas><div class="operations-donut-total" data-donut-total hidden><strong>0</strong><span>Accounts</span></div></div><ul class="operations-chart-legend" data-chart-legend hidden></ul><p class="operations-chart-status" role="status">Loading accounts...</p><button type="button" data-chart-retry hidden>Retry</button></figure>
+    <figure class="operations-chart" data-dashboard-chart data-source="{% url 'users_engagement_chart' %}?{{ user_query }}" data-empty="No linked activity for these accounts."><figcaption>Orders, requests and feedback</figcaption><div class="operations-chart-canvas"><canvas aria-label="Orders, pre-order requests, custom requests, enquiries and feedback counts" role="img"></canvas></div><p class="operations-chart-status" role="status">Loading activity...</p><button type="button" data-chart-retry hidden>Retry</button></figure>
+  </div></section>
+  <header class="operations-section-heading"><h2>Accounts</h2><span class="order-results-count">{{ user_page.paginator.count }} results · Showing {{ user_page.start_index }}–{{ user_page.end_index }}</span></header>
+  <div class="operations-table-wrap">
+    <table class="operations-table users-table">
+      <thead><tr><th>User</th><th>Role</th><th>Orders</th><th>Pre-orders</th><th>Customer requests</th><th>Reviews / feedback</th><th>Last sign-in</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {% for account in users %}
         <tr>
           <td><strong>{{ account.get_full_name|default:account.username }}</strong><small>{{ account.email }}</small></td>
+          <td><span class="operations-status {% if account.is_staff %}is-staff{% else %}is-ready{% endif %}">{% if account.is_staff %}Staff{% else %}Customer{% endif %}</span></td>
+          <td><strong>{{ account.order_count }}</strong><small>{{ account.completed_order_count }} completed</small></td>
+          <td>{{ account.preorder_count }}</td>
+          <td><strong>{{ account.custom_request_count|add:account.enquiry_count }}</strong><small>{{ account.custom_request_count }} custom · {{ account.enquiry_count }} enquiries</small></td>
+          <td>{{ account.feedback_count }}</td>
           <td>{% if account.last_login %}{{ account.last_login|date:'j M Y, H:i' }}{% else %}<span class="stock-active">Never signed in</span>{% endif %}</td>
-          <td>{{ account.date_joined|date:'j M Y' }}</td>
-          <td>{{ account.order_count }}</td>
-          <td><a class="table-action" href="{% url 'control_analytics' %}?user={{ account.pk }}">{{ account.activity_count }} event{{ account.activity_count|pluralize }}</a></td>
           <td><span class="product-status {% if account.is_active %}is-active{% else %}is-hidden{% endif %}">{% if account.is_active %}Active{% else %}Disabled{% endif %}</span></td>
-          <td class="product-actions">
+          <td class="users-actions">
             <button class="table-action" type="button" data-order-modal="manage-user-{{ account.pk }}">Amend</button>
             <form method="post">
               {% csrf_token %}
@@ -37,10 +47,11 @@
             </form>
           </td>
         </tr>
-        {% empty %}<tr><td colspan="7" class="empty-table">No users match your search.</td></tr>{% endfor %}
+        {% empty %}<tr><td colspan="9" class="empty-table">No users match these filters.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  {% if user_page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Account pages">{% if user_page.has_previous %}<a href="?{{ user_query }}&amp;page={{ user_page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ user_page.number }} of {{ user_page.paginator.num_pages }}</span>{% if user_page.has_next %}<a href="?{{ user_query }}&amp;page={{ user_page.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
 
   {% for account in users %}
     <template id="manage-user-{{ account.pk }}">
@@ -54,13 +65,16 @@
           <span>Joined {{ account.date_joined|date:'j F Y' }}</span>
           <span>Last login: {% if account.last_login %}{{ account.last_login|date:'j F Y, H:i' }}{% else %}Never signed in{% endif %}</span>
           <span>{{ account.order_count }} order{{ account.order_count|pluralize }} · {{ account.activity_count }} activity event{{ account.activity_count|pluralize }}</span>
+          <span>{{ account.preorder_count }} pre-order requests · {{ account.custom_request_count }} custom requests · {{ account.enquiry_count }} enquiries · {{ account.feedback_count }} reviews / feedback</span>
+          <span>Enquiries and feedback matched by current account email.</span>
+          <a href="{% url 'control_analytics' %}?user={{ account.pk }}&amp;start={{ account.date_joined|date:'Y-m-d' }}">View account activity</a>
         </div>
         <form method="post" class="management-form modal-form">
           {% csrf_token %}
           <input type="hidden" name="action" value="edit_details">
           <input type="hidden" name="user_id" value="{{ account.pk }}">
-          <label>First name<input type="text" name="first_name" value="{{ account.first_name }}"></label>
-          <label>Last name<input type="text" name="last_name" value="{{ account.last_name }}"></label>
+          <label>First name<input type="text" name="first_name" value="{{ account.first_name }}" maxlength="150"></label>
+          <label>Last name<input type="text" name="last_name" value="{{ account.last_name }}" maxlength="150"></label>
           <label>Email<input type="email" name="email" value="{{ account.email }}" required></label>
           <label><input type="checkbox" name="is_staff" {% if account.is_staff %}checked{% endif %} style="width: auto; display: inline-block; margin-right: 8px;"> Control panel access (staff)</label>
           <button class="button" type="submit">Save changes</button>
@@ -74,6 +88,7 @@
       </div>
     </template>
   {% endfor %}
-</section>
+</main>
 <div class="order-modal" hidden role="dialog" aria-modal="true" aria-label="Manage user"><div class="order-modal-backdrop"></div><div class="order-modal-panel"></div></div>
+<script defer src="{% static 'js/chart.umd.min.js' %}?v=4.5.1"></script><script defer src="{% static 'js/dashboard.js' %}?v=20261004-analytics"></script>
 {% endblock %}

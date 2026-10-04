@@ -1,0 +1,28 @@
+msgid ""
+msgstr ""
+"Language: fr\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Home"
+msgstr "Accueil"
+
+msgid "Jewellery"
+msgstr "Bijoux"
+
+msgid "Our Heritage"
+msgstr "Notre patrimoine"
+
+msgid "Custom design"
+msgstr "Création sur mesure"
+
+msgid "Control panel"
+msgstr "Panneau de contrôle"
+
+msgid "Sign in"
+msgstr "Se connecter"
+
+msgid "Sign out"
+msgstr "Se déconnecter"
+
+msgid "Pre-order"
+msgstr "Précommande"

@@ -7,11 +7,16 @@
 		<h1>Thank you for your order</h1>
 		<p>Your order reference is <strong>{{ order.order_reference|default:order.id }}</strong>. We will contact you with the next steps.</p>
 		<p class="order-status-note">Order status: {{ order.get_status_display }} · Payment status: {{ order.get_payment_status_display }}</p>
-		<div class="payment-details">
-			<h2>Payment details</h2>
-			<p><strong>Payment method:</strong> {{ order.payment_method|default:'Pending Stripe confirmation' }}</p>
-			<p><strong>Transaction ID:</strong> {{ order.transaction_id|default:'Pending Stripe confirmation' }}</p>
-			<p><strong>Date:</strong> {% if order.payment_date %}{{ order.payment_date|date:'j M Y h:i A T' }}{% else %}Pending Stripe confirmation{% endif %}</p>
+		<div class="order-details-grid">
+			<section class="order-details-panel">
+				<h2>Payment details</h2>
+				<table class="order-details-table">
+					<tr><th scope="row">Status</th><td>{{ order.get_payment_status_display }}</td></tr>
+					<tr><th scope="row">Payment method</th><td>{{ order.payment_method|default:'Pending Stripe confirmation' }}</td></tr>
+					<tr><th scope="row">Transaction ID</th><td class="transaction-value">{{ order.transaction_id|default:'Pending Stripe confirmation' }}</td></tr>
+					<tr><th scope="row">Date</th><td>{% if order.payment_date %}{{ order.payment_date|date:'j M Y h:i A T' }}{% else %}Pending Stripe confirmation{% endif %}</td></tr>
+				</table>
+			</section>
 		</div>
 		<a class="button" href="{% url 'catalogue' %}">Continue shopping</a>
 	{% else %}

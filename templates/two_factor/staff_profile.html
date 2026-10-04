@@ -1,0 +1,19 @@
+{% extends 'two_factor/_base.html' %}
+{% block title %}Staff account security | MISHA{% endblock %}
+{% block content %}
+<h1>Staff account security</h1>
+<p>Signed in as <strong>{{ request.user.get_username }}</strong>.</p>
+{% if request.user.is_staff and request.user.is_verified %}
+<p role="status"><strong>Staff access verified.</strong> Your current session has passed MFA verification. You do not need to sign in again to manage recovery codes.</p>
+{% endif %}
+{% if default_device %}
+<p>Authenticator-app MFA is enabled.</p>
+<p><a class="button" href="{% url 'two_factor:backup_tokens' %}">Manage recovery codes</a></p>
+<p>This is your account security overview. Manage recovery codes opens a separate page where you can generate and save backup codes.</p>
+{% else %}
+<p>Set up an authenticator app to access staff tools.</p>
+<p><a class="button" href="{% url 'two_factor:setup' %}">Set up authenticator</a></p>
+{% endif %}
+<p>Use a recovery code if your phone is unavailable. Contact the server administrator for an identity-verified reset if you lose both your authenticator and recovery codes.</p>
+<p><a href="{% url 'control_panel' %}">Back to control panel</a></p>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Our Heritage | Misha Island Heritage{% endblock %}
+{% block meta_description %}Discover the island stories, cultures and traditions behind Misha Island Heritage jewellery.{% endblock %}
+
+{% block content %}
+<section class="heritage-video-banner" style="background-image: url('{% static 'images/banner.png' %}?v=20261001-2')" aria-label="Island heritage video banner">
+  <video class="media-photo" autoplay muted loop playsinline preload="auto" poster="{% static 'images/banner.png' %}?v=20261001-2" data-playback-rate="0.6" aria-label="Island heritage film">
+    <source src="{% static 'images/banner2.mp4' %}" type="video/mp4">
+  </video>
+</section>
+
+<section class="heritage-culture">
+  <div class="heritage-culture-copy">
+    <p class="eyebrow">CULTURE &amp; TRADITION</p>
+    <h2>What we carry forward.</h2>
+    <p>Island tradition is lived, not displayed. It is found in the welcome offered at the door, the stories shared around a table, the craft passed from one generation to the next.</p>
+    <p>We honour that spirit through thoughtful forms and enduring materials, creating jewellery for everyday rituals, important milestones and the people who make them meaningful.</p>
+    <p>Mauritius is a meeting place: African, Indian, European and Asian influences live together in its music, food, language and celebrations. That layered identity is the starting point for Misha Island Heritage.</p>
+    <p>Our pieces are designed as small keepsakes of belonging. A familiar colour, a remembered shoreline, the rhythm of a family tradition: each detail carries the feeling of home, wherever you are in the world.</p>
+  </div>
+</section>
+
+<section class="heritage-pillars section">
+  <div class="section-head">
+    <p class="eyebrow">OUR VALUES</p>
+    <h2>Jewellery with a sense of place.</h2>
+  </div>
+  <div class="heritage-pillar-grid">
+    <article>
+      <span>01</span>
+      <h3>Belonging</h3>
+      <p>Pieces that connect you to your roots, your people and the places that shaped you.</p>
+    </article>
+    <article>
+      <span>02</span>
+      <h3>Continuity</h3>
+      <p>Designs made to be worn, remembered and passed on through generations.</p>
+    </article>
+    <article>
+      <span>03</span>
+      <h3>Care</h3>
+      <p>Considered details and lasting materials, made with respect for the story each piece holds.</p>
+    </article>
+  </div>
+</section>
+
+<section class="heritage-closing">
+  <p class="eyebrow">KEEP THE STORY CLOSE</p>
+  <h2>Wear your roots.<br>Carry the island spirit.</h2>
+  <a class="button" href="{% url 'catalogue' %}">Discover the collection</a>
+  <div class="heritage-signature-artwork">
+    <img class="heritage-signature-image" src="{% static 'images/signaturecollection.png' %}" alt="Signature collection gold Mauritius-shaped pendants with cross, Om and Tamil Om symbols" width="1672" height="941" loading="lazy" decoding="async">
+  </div>
+</section>
+{% endblock %}

@@ -1,65 +1,43 @@
 {% extends 'base.html' %}
-{% block title %}Sales Dashboard | Control Panel{% endblock %}
+{% load static %}
+{% block title %}Sales & Reconciliation | MISHA{% endblock %}
 {% block content %}
-<section class="page-head"><p class="eyebrow">CONTROL PANEL / FINANCE</p><h1>Sales dashboard</h1><p>Revenue, cost of goods and stock replenishment budgeting for forecasting and planning.</p></section>
+<section class="page-head operations-page-head finance-page-head"><p class="eyebrow">CONTROL PANEL / FINANCE</p><h1>Sales &amp; reconciliation</h1><p>{{ window.currency }} · Calendar periods · Sales: completion date · Receipts: payment date</p></section>
 {% include 'shop/_control_nav.html' %}
-
-<section class="section analytics-dashboard">
-  <div class="control-products-toolbar" style="margin-bottom: 24px;">
-    <div class="catalogue-search">
-      <a class="button{% if period == 'month' %}{% else %} outline{% endif %}" href="?period=month">Monthly</a>
-      <a class="button{% if period == 'quarter' %}{% else %} outline{% endif %}" href="?period=quarter">Quarterly</a>
-      <a class="button{% if period == 'year' %}{% else %} outline{% endif %}" href="?period=year">Annual</a>
-    </div>
-  </div>
-
-  <div class="control-stats">
-    <div><strong>£{{ totals.revenue|floatformat:2 }}</strong><span>Total revenue</span></div>
-    <div><strong>£{{ totals.cogs|floatformat:2 }}</strong><span>Cost of goods sold</span></div>
-    <div><strong>£{{ totals.gross_profit|floatformat:2 }}</strong><span>Gross profit ({{ totals.margin|floatformat:1 }}% margin)</span></div>
-    <div><strong>{{ totals.order_count }}</strong><span>Orders in view</span></div>
-  </div>
-
-  {% if forecast %}
-  <div class="checkout-address-summary" style="margin-bottom: 28px;">
-    <strong>Sales forecast</strong>
-    Projected {{ forecast.label }} revenue: £{{ forecast.revenue|floatformat:2 }} — trend is {{ forecast.trend }} (£{{ forecast.change|floatformat:2 }} per period based on a simple linear trend of the recent history below). Use this as a planning guide, not a guarantee.
-  </div>
-  {% endif %}
-
-  <div class="orders-table-form" style="margin-bottom: 32px;">
-    <div class="batch-toolbar">
-      <strong>Revenue by period</strong>
-      <span class="batch-selection">{{ periods|length }} period{{ periods|length|pluralize }} shown</span>
-    </div>
-    <div class="orders-table-wrap">
-      <table class="orders-table">
-        <thead><tr><th>Period</th><th>Revenue</th><th>Cost of goods</th><th>Gross profit</th><th>Margin</th><th>Orders</th><th>Avg. order value</th></tr></thead>
-        <tbody>
-          {% for row in periods %}
-          <tr><td><strong>{{ row.label }}</strong></td><td>£{{ row.revenue|floatformat:2 }}</td><td>£{{ row.cogs|floatformat:2 }}</td><td>£{{ row.gross_profit|floatformat:2 }}</td><td>{{ row.margin|floatformat:1 }}%</td><td>{{ row.order_count }}</td><td>£{{ row.aov|floatformat:2 }}</td></tr>
-          {% empty %}<tr><td colspan="7">No paid orders recorded yet.</td></tr>{% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="orders-table-form">
-    <div class="batch-toolbar">
-      <strong>Stock replenishment budget</strong>
-      <span class="batch-selection">Products at or below reorder level, restocked up to their target quantity</span>
-      <strong style="color: #963c2d;">£{{ total_replenishment_cost|floatformat:2 }} needed</strong>
-    </div>
-    <div class="orders-table-wrap">
-      <table class="orders-table">
-        <thead><tr><th>Product</th><th>Stock</th><th>Reorder level</th><th>Restock target</th><th>Qty needed</th><th>Unit cost</th><th>Budget</th></tr></thead>
-        <tbody>
-          {% for entry in replenishment_items %}
-          <tr><td><strong>{{ entry.product.name }}</strong><small>{{ entry.product.sku }}</small></td><td>{{ entry.product.stock_quantity }}</td><td>{{ entry.product.reorder_level }}</td><td>{{ entry.product.restock_target }}</td><td>{{ entry.qty_needed }}</td><td>£{{ entry.product.cost_price|floatformat:2 }}</td><td>£{{ entry.line_cost|floatformat:2 }}</td></tr>
-          {% empty %}<tr><td colspan="7">No products currently need restocking.</td></tr>{% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</section>
+<main class="operations-dashboard finance-dashboard">
+  <form class="finance-period-filter" method="get"><label>Period <select name="period"><option value="month"{% if period == 'month' %} selected{% endif %}>Monthly</option><option value="quarter"{% if period == 'quarter' %} selected{% endif %}>Quarterly</option><option value="year"{% if period == 'year' %} selected{% endif %}>Annual · six years</option></select></label><label>Year <select name="year">{% for year in finance_years %}<option value="{{ year }}"{% if year == window.year %} selected{% endif %}>{{ year }}</option>{% endfor %}</select></label><button class="button" type="submit">Apply</button></form>
+  <div class="operations-summary"><div><span>Completed sales revenue</span><strong>{{ window.currency }} {{ totals.revenue|floatformat:2 }}</strong><small>{{ totals.order_count }} completed sales</small></div><div><span>Cost of goods sold</span><strong>{{ totals.cogs|floatformat:2 }}</strong><small>{{ window.currency }}</small></div><div><span>Gross profit after gifts</span><strong>{{ totals.profit_after_gifts|floatformat:2 }}</strong><small>Excludes payment fees and overheads</small></div><div><span>Replenishment needed</span><strong>{{ budget.total|floatformat:2 }}</strong><small>{{ window.currency }} · Current inventory</small></div></div>
+  {% if totals.missing_completion_dates %}<p class="finance-notice" role="status">{{ totals.missing_completion_dates }} completed order{{ totals.missing_completion_dates|pluralize }} have no historical completion date and are excluded.</p>{% endif %}
+  {% if totals.zero_cost_item_count %}<p class="finance-notice" role="status">{{ totals.zero_cost_item_count }} completed order item{{ totals.zero_cost_item_count|pluralize }} have zero recorded unit cost. Cost and profit figures may be incomplete.</p>{% endif %}
+  <section class="operations-section"><header class="operations-section-heading"><h2>Completed sales</h2><a href="{% url 'control_sales_completed' %}?{{ finance_query }}">Sales details</a></header>
+    {% url 'sales_revenue_chart' as revenue_url %}{% include 'shop/_finance_chart.html' with chart_url=revenue_url chart_type='line' chart_caption='Completed revenue and product costs by period' chart_empty='No completed sales or gift costs in this period.' %}
+    <div class="operations-table-wrap"><table class="operations-table"><thead><tr><th>Period</th><th>Net revenue</th><th>Cash</th><th>Stripe / card</th><th>Gift cards</th><th>COGS</th><th>Free gift cost</th><th>Profit after gifts</th></tr></thead><tbody>{% for row in periods %}<tr><td>{{ row.label }}</td><td>{{ row.revenue|floatformat:2 }}</td><td>{{ row.cash|floatformat:2 }}</td><td>{{ row.stripe|floatformat:2 }}</td><td>{{ row.gift_card|floatformat:2 }}</td><td>{{ row.cogs|floatformat:2 }}</td><td>{{ row.gift_cost|floatformat:2 }}</td><td>{{ row.profit_after_gifts|floatformat:2 }}</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="operations-section"><header class="operations-section-heading"><h2>Stripe / card reconciliation</h2><a href="{% url 'control_sales_reconciliation' %}?{{ finance_query }}">Transaction details</a></header>
+    <div class="finance-sync"><form method="post">{% csrf_token %}<input type="hidden" name="action" value="sync_stripe"><button class="button" type="submit">Refresh from Stripe</button></form><span>{% if reconciliation.last_sync %}Last refresh: {{ reconciliation.last_sync.created_at|date:'j M Y, H:i T' }} · {{ reconciliation.last_sync.get_status_display }}{% else %}Not yet synced{% endif %}</span></div>
+    {% if not reconciliation.last_sync or reconciliation.last_sync.status != 'complete' %}<p class="finance-notice" role="status">Stripe data is not fully synced. Differences and missing receipts are provisional.</p>{% endif %}
+    <div class="operations-inline-metrics"><div><strong>{{ reconciliation.stripe_total|floatformat:2 }}</strong><span>Stripe receipts, net of refunds</span></div><div><strong>{{ reconciliation.local_total|floatformat:2 }}</strong><span>System card receipts</span></div><div><strong>{{ reconciliation.difference|floatformat:2 }}</strong><span>Difference · {{ window.currency }}</span></div><div><strong>{{ reconciliation.matched_count }}</strong><span>Matched</span></div><div><strong>{{ reconciliation.review_count }}</strong><span>Needs review</span></div></div>
+    {% url 'sales_receipts_chart' as receipts_url %}{% include 'shop/_finance_chart.html' with chart_url=receipts_url chart_type='line' chart_caption='Card receipts by payment period' chart_empty='No card receipts in this period.' %}
+    <p class="finance-data-note">Recorded Stripe fees: {{ window.currency }} {{ reconciliation.fees|floatformat:2 }}{% if reconciliation.unknown_fees %} · {{ reconciliation.unknown_fees }} transactions with unavailable fees{% endif %}</p>
+  </section>
+  <section class="operations-section"><header class="operations-section-heading"><h2>Refund reconciliation</h2><a href="{% url 'control_sales_reconciliation' %}?{{ finance_query }}&amp;kind=refunds">Refund details</a></header>
+    <p class="finance-data-note">Card refunds to date for payments in the selected period, not refunds issued during the period. Cash and gift-card refunds remain in completed sales details.</p>
+    <div class="operations-inline-metrics"><div><strong>{{ reconciliation.refunds.stripe_total|floatformat:2 }}</strong><span>Stripe refunds</span></div><div><strong>{{ reconciliation.refunds.local_total|floatformat:2 }}</strong><span>System card refunds</span></div><div><strong>{{ reconciliation.refunds.difference|floatformat:2 }}</strong><span>Difference · {{ window.currency }}</span></div><div><strong>{{ reconciliation.refunds.matched_count }}</strong><span>Matched</span></div><div><strong>{{ reconciliation.refunds.review_count }}</strong><span>Needs review</span></div><div><strong>{{ reconciliation.refunds.unsynced_count }}</strong><span>Not synced</span></div></div>
+    {% if not reconciliation.refunds.entries %}<p class="finance-data-note">No card refunds recorded for this payment period.</p>{% endif %}
+  </section>
+  <section class="operations-section"><header class="operations-section-heading"><h2>Payment failure reconciliation</h2><a href="{% url 'control_sales_reconciliation' %}?{{ finance_query }}&amp;kind=failures">Failed payment details</a></header>
+    <div class="operations-inline-metrics"><div><strong>{{ reconciliation.failures.stripe_count }}</strong><span>Failed Stripe attempts · {{ window.currency }} {{ reconciliation.failures.stripe_total|floatformat:2 }}</span></div><div><strong>{{ reconciliation.failures.local_count }}</strong><span>System failed orders · {{ window.currency }} {{ reconciliation.failures.local_total|floatformat:2 }}</span></div><div><strong>{{ reconciliation.failures.matched_count }}</strong><span>Failures matched</span></div><div><strong>{{ reconciliation.failures.recovered_count }}</strong><span>Failed attempts; order now paid</span></div><div><strong>{{ reconciliation.failures.review_count }}</strong><span>Needs review</span></div><div><strong>{{ reconciliation.failures.unsynced_count }}</strong><span>Not synced</span></div></div>
+    <p class="finance-data-note">Failed amounts are attempted payments, not revenue or refunds. Stripe counts attempts; the system counts currently failed orders, so retries can differ. Stripe uses attempt date; system orders use payment date when available, otherwise order creation date. Expired checkouts may have no Stripe charge.</p>
+    {% if not reconciliation.failures.entries %}<p class="finance-data-note">No failed card payments recorded for this period.</p>{% endif %}
+  </section>
+  <section class="operations-section"><header class="operations-section-heading"><h2>Cash, free gifts &amp; gift cards</h2><a href="{% url 'control_sales_completed' %}?{{ finance_query }}">Entry details</a></header>
+    <div class="operations-inline-metrics"><div><strong>{{ totals.cash|floatformat:2 }}</strong><span>Cash revenue</span></div><div><strong>{{ totals.gift_card|floatformat:2 }}</strong><span>Gift-card redemption revenue</span></div><div><strong>{{ totals.gift_count }}</strong><span>Free gifts</span></div><div><strong>{{ totals.gift_cost|floatformat:2 }}</strong><span>Free gift cost · {{ window.currency }}</span></div></div>
+    <form class="finance-entry-form" method="post">{% csrf_token %}<input type="hidden" name="action" value="record_offline">{{ offline_form.non_field_errors }}{% for field in offline_form %}{% if field.is_hidden %}{{ field }}{% else %}<div>{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}<button class="button" type="submit">Record completed entry</button></form>
+  </section>
+  <section class="operations-section"><header class="operations-section-heading"><h2>Stock replenishment budget</h2><a href="{% url 'control_sales_replenishment' %}?{{ finance_query }}">Replenishment details</a></header><p class="finance-data-note">{{ budget.items|length }} products · {{ window.currency }} {{ budget.total|floatformat:2 }} needed</p>
+    {% if budget.zero_cost_count %}<p class="finance-notice" role="status">{{ budget.zero_cost_count }} replenishment product{{ budget.zero_cost_count|pluralize }} have no unit cost recorded. The budget is incomplete.</p>{% endif %}
+    {% url 'sales_replenishment_chart' as replenishment_url %}{% include 'shop/_finance_chart.html' with chart_url=replenishment_url chart_caption='Cost needed by product · Top 12 and remaining products' chart_empty='No recorded replenishment cost.' %}
+  </section>
+</main>
+<script defer src="{% static 'js/chart.umd.min.js' %}?v=4.5.1"></script><script defer src="{% static 'js/dashboard.js' %}?v=20261004-analytics"></script>
 {% endblock %}

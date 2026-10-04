@@ -2,11 +2,30 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
+from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path
 from shop.forms import EmailAuthenticationForm
+from shop.sitemaps import CollectionSitemap, ProductSitemap, StaticViewSitemap
+from shop.views import robots_txt
+from shop.seo import sitemap_index, sitemap_section
+
+handler400 = 'shop.errors.bad_request'
+handler403 = 'shop.errors.permission_denied'
+handler404 = 'shop.errors.page_not_found'
+handler500 = 'shop.errors.server_error'
+
+sitemaps = {
+    'products': ProductSitemap,
+    'collections': CollectionSitemap,
+    'static': StaticViewSitemap,
+}
 
 urlpatterns = [
+    path('staff-auth/', include('shop.staff_auth_urls')),
     path('admin/', admin.site.urls),
+    path('sitemap.xml', sitemap_index, {'sitemaps': sitemaps}, name='sitemap_index'),
+    path('sitemap-<section>.xml', sitemap_section, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    path('robots.txt', robots_txt, name='robots_txt'),
     path('', include('shop.urls')),
     path('login/', auth_views.LoginView.as_view(
         template_name='registration/login.html',
@@ -16,6 +35,7 @@ urlpatterns = [
         template_name='registration/password_reset_form.html',
         email_template_name='registration/password_reset_email.txt',
         subject_template_name='registration/password_reset_subject.txt',
+        from_email=settings.PASSWORD_RESET_FROM_EMAIL,
     ), name='password_reset'),
     path('password-reset/done/', auth_views.PasswordResetDoneView.as_view(
         template_name='registration/password_reset_done.html',

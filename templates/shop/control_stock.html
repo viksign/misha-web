@@ -13,25 +13,34 @@
     <div><strong>{{ total_units }}</strong><span>Total units</span></div>
     <div><strong>{{ low_stock_count }}</strong><span>Low stock</span></div>
     <div><strong>{{ out_of_stock_count }}</strong><span>Out of stock</span></div>
+    <div><strong>{{ preorder_interest_count }}</strong><span>Pre-order interest</span></div>
   </div>
 
   <form class="stock-search" method="get">
     <label for="stock-search-input">Find a product or SKU</label>
     <input id="stock-search-input" name="q" value="{{ query }}" placeholder="Search inventory">
-    <button class="button" type="submit">Search</button>
-    {% if query %}<a class="button outline" href="{% url 'control_stock' %}">Clear</a>{% endif %}
+    <select name="collection" aria-label="Collection"><option value="">All collections</option>{% for collection in collections %}<option value="{{ collection.slug }}"{% if collection_filter == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}</select>
+    <select name="stock" aria-label="Stock status"><option value="all"{% if stock_filter == 'all' %} selected{% endif %}>All stock levels</option><option value="attention"{% if stock_filter == 'attention' %} selected{% endif %}>Needs replenishment</option><option value="healthy"{% if stock_filter == 'healthy' %} selected{% endif %}>Healthy stock</option><option value="low"{% if stock_filter == 'low' %} selected{% endif %}>Low stock</option><option value="out"{% if stock_filter == 'out' %} selected{% endif %}>Out of stock</option></select>
+    <select name="visibility" aria-label="Product visibility"><option value="all"{% if visibility == 'all' %} selected{% endif %}>All products</option><option value="active"{% if visibility == 'active' %} selected{% endif %}>Active products</option><option value="hidden"{% if visibility == 'hidden' %} selected{% endif %}>Hidden products</option></select>
+    <select name="sort" aria-label="Inventory sort order"><option value="stock_asc"{% if sort == 'stock_asc' %} selected{% endif %}>Stock: lowest first</option><option value="stock_desc"{% if sort == 'stock_desc' %} selected{% endif %}>Stock: highest first</option><option value="name"{% if sort == 'name' %} selected{% endif %}>Product name</option><option value="sku"{% if sort == 'sku' %} selected{% endif %}>SKU</option></select>
+    <button class="button" type="submit">Apply</button>
+    <a class="button outline" href="{% url 'control_stock' %}">Reset</a>
   </form>
 
   <div class="stock-table-wrap">
-    <table class="stock-table">
-      <thead><tr><th>Product</th><th>SKU</th><th>Price</th><th>Stock</th><th>Visibility</th><th>Update</th></tr></thead>
+    <table class="stock-table stock-inventory-table">
+      <thead><tr><th>Product / SKU / Collection</th><th>Price</th><th>Available</th><th>Reorder at</th><th>Target</th><th>Stock health</th><th>Pre-order interest</th><th>Restock notifications</th><th>Stock &amp; visibility</th></tr></thead>
       <tbody>
         {% for product in products %}
-          <tr class="{% if product.stock_quantity == 0 %}stock-empty{% elif product.stock_quantity <= 5 %}stock-low{% endif %}">
-            <td><strong>{{ product.name }}</strong></td>
-            <td>{{ product.sku }}</td>
+          <tr class="{% if product.stock_status == 'out' %}stock-empty{% elif product.stock_status == 'low' %}stock-low{% endif %}">
+            <td><a href="{% url 'control_products' %}?edit={{ product.pk }}"><strong>{{ product.name }}</strong></a><small>{{ product.sku }} · {{ product.collection.name|default:'Uncategorised' }}</small><a class="stock-history-link" href="{% url 'control_stock_history' %}?q={{ product.sku|urlencode }}">History</a></td>
             <td>£{{ product.price }}</td>
             <td><strong>{{ product.stock_quantity }}</strong></td>
+            <td>{{ product.reorder_level }}</td>
+            <td>{{ product.restock_target }}</td>
+            <td>{% if product.stock_status == 'out' %}Out of stock{% elif product.stock_status == 'low' %}Low stock{% else %}Healthy{% endif %}</td>
+            <td>{{ product.preorder_interest_count|default:0 }} requests<small>{{ product.preorder_quantity_total|default:0 }} units requested</small></td>
+            <td>{{ product.restock_interest_count|default:0 }} requests<small>{{ product.restock_email_sent_count|default:0 }} sent / {{ product.restock_pending_count|default:0 }} pending</small></td>
             <td>
               <form method="post" class="stock-inline-form">
                 {% csrf_token %}
@@ -43,10 +52,46 @@
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="6">No products match your search.</td></tr>
+          <tr><td colspan="9">No products match your search.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <div class="order-results-count">{{ product_page.paginator.count }} product{{ product_page.paginator.count|pluralize }} · Showing {{ product_page.start_index }}–{{ product_page.end_index }}</div>
+  {% if product_page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Inventory pages">{% if product_page.has_previous %}<a href="?{{ pagination_query }}&amp;page=1">First</a><a href="?{{ pagination_query }}&amp;page={{ product_page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ product_page.number }} of {{ product_page.paginator.num_pages }}</span>{% if product_page.has_next %}<a href="?{{ pagination_query }}&amp;page={{ product_page.next_page_number }}">Next</a><a href="?{{ pagination_query }}&amp;page={{ product_page.paginator.num_pages }}">Last</a>{% endif %}</nav>{% endif %}
+
+  <section class="interest-dashboard-section">
+    <header class="operations-section-heading"><h2>Stock movements</h2><a href="{% url 'control_stock_history' %}">Full stock history</a></header>
+    <div class="stock-table-wrap"><table class="stock-table"><thead><tr><th>Date &amp; time</th><th>Product</th><th>Movement</th><th>Change</th><th>Balance</th><th>Staff</th><th>Order</th></tr></thead><tbody>{% for movement in stock_movements %}<tr><td>{{ movement.created_at|date:'j M Y, H:i T' }}</td><td>{{ movement.product_name }}<small>{{ movement.sku }}</small></td><td>{{ movement.get_reason_display }}</td><td>{% if movement.quantity_change > 0 %}+{% endif %}{{ movement.quantity_change }}</td><td>{{ movement.balance_before }} → {{ movement.balance_after }}</td><td>{{ movement.actor_name|default:'System' }}</td><td>{{ movement.order_reference|default:'-' }}</td></tr>{% empty %}<tr><td colspan="7">No stock movements recorded for these products.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+
+  <section class="interest-dashboard-section">
+    <div class="section-head"><p class="eyebrow">PRODUCT PRE-ORDERS</p><h2>Pre-order interest</h2><p>Registered customers who requested individual products before they are available.</p></div>
+    <div class="stock-table-wrap">
+      <table class="stock-table">
+        <thead><tr><th>Product</th><th>Customer</th><th>Email</th><th>Units</th><th>Requested</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for signup in preorder_signups %}
+            <tr><td>{{ signup.product.name|default:'New collection' }}</td><td>{{ signup.user.get_full_name|default:'Registered customer' }}</td><td>{{ signup.email }}</td><td>{{ signup.desired_quantity }}</td><td>{{ signup.created_at|date:'j M Y, H:i' }}</td><td>{% if signup.notified_at %}<span class="dispatch-email-status is-sent">Sent {{ signup.notified_at|date:'j M Y, H:i' }}</span>{% else %}<span class="dispatch-email-status is-pending">Pending</span>{% endif %}</td></tr>
+          {% empty %}<tr><td colspan="6">No pre-order interest captured yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="interest-dashboard-section">
+    <div class="section-head"><p class="eyebrow">RESTOCK REQUESTS</p><h2>Back-in-stock notifications</h2><p>Track who asked to be notified and whether the email was sent.</p></div>
+    <div class="stock-table-wrap">
+      <table class="stock-table">
+        <thead><tr><th>Product</th><th>Email</th><th>Requested</th><th>Email status</th></tr></thead>
+        <tbody>
+          {% for signup in restock_signups %}
+            <tr><td>{{ signup.product.name }}</td><td>{{ signup.email }}</td><td>{{ signup.created_at|date:'j M Y, H:i' }}</td><td>{% if signup.notified_at %}<span class="dispatch-email-status is-sent">Sent {{ signup.notified_at|date:'j M Y, H:i' }}</span>{% else %}<span class="dispatch-email-status is-pending">Pending</span>{% endif %}</td></tr>
+          {% empty %}<tr><td colspan="4">No back-in-stock requests captured yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 {% endblock %}

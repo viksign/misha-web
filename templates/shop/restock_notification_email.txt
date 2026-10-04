@@ -1,0 +1,11 @@
+MISHA ISLAND HERITAGE
+
+{% if is_preorder %}{{ product.name }} is ready to order.{% else %}{{ product.name }} is back in stock.{% endif %}
+
+{% if is_preorder %}The piece you joined the pre-order list for is now available. Complete your order from your bag:{% else %}The piece you asked us to watch for is available again. Add it to your bag while it is here:{% endif %}
+
+{{ add_to_bag_url }}
+
+This link adds one {{ product.name }} to your bag and is valid for 60 days. You can review your bag before checkout.
+
+Visit MISHA Island Heritage: {{ shop_url }}

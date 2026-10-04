@@ -1,29 +1,42 @@
 {% load static %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ LANGUAGE_CODE|slice:':2' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Misha Island Heritage{% endblock %}</title>
-  <meta name="description" content="{% block meta_description %}Timeless jewellery rooted in Mauritius and island heritage.{% endblock %}">
-  
+  <title>{% block title %}{{ seo_title|default:'Misha Island Heritage' }}{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}{{ seo_description|default:'Timeless jewellery rooted in Mauritius and island heritage.' }}{% endblock %}">
+  <meta name="robots" content="{{ seo_robots|default:'noindex, follow' }}">
+  {% if seo_canonical %}<link rel="canonical" href="{{ seo_canonical }}">{% endif %}
+  <meta property="og:title" content="{{ seo_title }}">
+  <meta property="og:description" content="{{ seo_description }}">
+  <meta property="og:type" content="{{ seo_type|default:'website' }}">
+  {% if seo_canonical %}<meta property="og:url" content="{{ seo_canonical }}">{% endif %}
+  <meta property="og:image" content="{{ seo_image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ seo_title }}">
+  <meta name="twitter:description" content="{{ seo_description }}">
+  <meta name="twitter:image" content="{{ seo_image }}">
+  {% if seo_json_ld %}<script type="application/ld+json">{{ seo_json_ld }}</script>{% endif %}
+  {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Playfair+Display:wght@500;600;700&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/shop.css' %}">
+  <link rel="stylesheet" href="{% static 'css/shop.css' %}?v=20261004-activity-search">
 </head>
 <body>
 
   <header class="site-header">
     <a class="brand" href="{% url 'home' %}">
-      <img src="{% static 'images/mih_logo.png' %}" alt="MISHA Island Heritage">
+      <img src="{% static 'images/mih_logo.png' %}?v=20261003" alt="MISHA Island Heritage">
     </a>
     <button class="menu-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
     <nav>
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'catalogue' %}">Jewellery</a>
-      <a href="{% url 'home' %}#heritage">Our Heritage</a>
-      <a href="{% url 'contact' %}">Custom</a>
+      <a href="{% url 'heritage' %}">Our Heritage</a>
+      <a href="{% url 'custom_design' %}">Custom design</a>
       {% if request.user.is_staff %}<a href="{% url 'control_panel' %}">Control panel</a>{% endif %}
     </nav>
     <div class="actions">
@@ -68,30 +81,98 @@
   {% if messages %}
     <div class="messages" aria-live="polite">
       {% for message in messages %}
-        <div class="message" role="status">{{ message }}{% if 'bag-added' in message.tags %} <a class="message-action" href="{% url 'checkout' %}">Go to checkout</a>{% endif %}</div>
+        <div class="message" role="status">
+          {{ message }}
+          {% if 'bag-added' in message.tags %}
+            <span class="message-actions">
+              <a class="message-action" href="{% url 'checkout' %}">Proceed to checkout</a>
+              <a class="message-continue" href="{% url 'catalogue' %}">Continue shopping</a>
+            </span>
+          {% endif %}
+        </div>
       {% endfor %}
     </div>
   {% endif %}
 
   {% block content %}{% endblock %}
 
+ 
+
+  <aside class="cookie-notice" data-cookie-notice role="dialog" aria-labelledby="cookie-notice-title" hidden>
+    <p class="eyebrow">YOUR PRIVACY</p>
+    <h2 id="cookie-notice-title">Cookie choices</h2>
+    <p>Essential cookies keep your bag and checkout working. Choose whether to allow analytics and advertising cookies.</p>
+    <div class="cookie-notice-actions">
+      <button type="button" data-cookie-reject>Reject optional</button>
+      <button type="button" data-cookie-accept>Accept optional</button>
+      <button type="button" class="cookie-settings-link" data-cookie-settings-toggle aria-expanded="false">Settings</button>
+    </div>
+    <div class="cookie-preferences" data-cookie-settings hidden>
+      <label><input type="checkbox" data-cookie-analytics> Analytics</label>
+      <label><input type="checkbox" data-cookie-advertising> Advertising</label>
+      <button type="button" class="button" data-cookie-save>Save choices</button>
+    </div>
+  </aside>
+
+  <aside class="store-chat" data-store-chat data-endpoint="{% url 'store_assistant' %}">
+    <section class="store-chat-panel" data-chat-panel aria-label="Misha store assistant" hidden>
+      <header class="store-chat-header">
+        <div><strong>Misha assistant</strong><span>Store help</span></div>
+        <button type="button" class="store-chat-close" data-chat-close aria-label="Close chat">&times;</button>
+      </header>
+      <div class="store-chat-messages" data-chat-messages aria-live="polite" aria-relevant="additions">
+        <p class="store-chat-message assistant">Hello! Ask about jewellery, delivery prices, or tracking an order.</p>
+      </div>
+      <div class="store-chat-suggestions" data-chat-suggestions>
+        <button type="button" data-chat-suggestion="Show me jewellery">Jewellery</button>
+        <button type="button" data-chat-suggestion="What delivery options do you offer?">Delivery</button>
+        <button type="button" data-chat-suggestion="Track my order">Track order</button>
+        <button type="button" data-chat-suggestion="Contact us">Contact us</button>
+      </div>
+      <form class="store-chat-form" data-chat-form>
+        {% csrf_token %}
+        <label class="visually-hidden" for="store-chat-input">Ask a question</label>
+        <input id="store-chat-input" name="message" type="text" maxlength="500" placeholder="Ask a question..." autocomplete="off" required>
+        <button type="submit" aria-label="Send message" title="Send message">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-5 16-3-7-8-1Z"></path><path d="m12 13 8-9"></path></svg>
+        </button>
+      </form>
+      {% if gemini_chat_enabled %}
+        <label class="store-chat-ai-notice"><input type="checkbox" data-chat-ai-consent><span>General AI questions go to Google Gemini’s free tier. Google may use them to improve products. Don’t include personal, order, or payment details.</span></label>
+      {% endif %}
+      <p class="store-chat-note">Never share payment details.</p>
+    </section>
+    <button type="button" class="store-chat-toggle" data-chat-toggle aria-expanded="false" aria-label="Open store chat" title="Chat with us">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.2-3A7.5 7.5 0 1 1 20 11.5Z"></path><path d="M8.5 11.5h.01M12.5 11.5h.01M16.5 11.5h.01"></path></svg>
+      <span>Chat</span>
+    </button>
+  </aside>
+
+  <script>
+    window.mishaAnalyticsUrl = "{% url 'analytics_click' %}";
+    window.mishaGoogleTagIds = {
+      analytics: '{{ google_analytics_id|default:""|escapejs }}',
+      advertising: '{{ google_ads_id|default:""|escapejs }}'
+    };
+  </script>
+  <script src="{% static 'js/shop.js' %}?v=20261004-activity-search"></script>
   <footer>
-    <div>
-      <img src="{% static 'images/mih_logo.png' %}" alt="Misha Island Heritage">
+    <div class="footer-brand">
+      <img src="{% static 'images/mih_logo.png' %}?v=20261003" alt="Misha Island Heritage">
       <p>Mauritius · Island Heritage · Timeless Jewellery</p>
     </div>
-    <div>
-      <a href="{% url 'catalogue' %}">Jewellery</a> · 
-      <a href="{% url 'feedback' %}">Feedback</a> · 
-      <a href="{% url 'contact' %}">Create your design &amp; concept</a>
-    </div>
-    <div>
-      Follow our journey<br>
-      <span>Instagram · Facebook · Pinterest</span>
+    <div class="footer-bottom">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="{% url 'catalogue' %}">Jewellery</a>
+        <a href="{% url 'feedback' %}">Feedback</a>
+        <a href="{% url 'heritage' %}">Our Heritage</a>
+      </nav>
+      <div class="footer-social">
+        <span>Follow our journey</span>
+        <span><a href="https://www.tiktok.com/@mishaislandheritage?_r=1&amp;_t=ZG-9A9xFVscE9h" target="_blank" rel="noopener noreferrer">TikTok</a> · <a href="https://www.facebook.com/share/1Q4CTpuzVv/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">Facebook</a> · <a href="https://www.instagram.com/mishaislandheritage?stkn=YjJlZWxoZHo0M3Rv&amp;utm_source=qr" target="_blank" rel="noopener noreferrer">Instagram</a></span>
+      </div>
+      <button class="cookie-settings-trigger" type="button" data-cookie-reopen>Cookie settings</button>
     </div>
   </footer>
-
-  <script>window.mishaAnalyticsUrl = "{% url 'analytics_click' %}";</script>
-  <script src="{% static 'js/shop.js' %}"></script>
 </body>
 </html>

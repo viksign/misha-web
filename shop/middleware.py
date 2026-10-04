@@ -1,4 +1,5 @@
 from .models import AnalyticsEvent, Product
+from .cookie_consent import has_cookie_consent
 
 
 class AnalyticsMiddleware:
@@ -7,11 +8,10 @@ class AnalyticsMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if request.method == 'GET' and response.status_code == 200 and request.path.startswith('/'):
+        if has_cookie_consent(request, 'analytics') and request.method == 'GET' and response.status_code == 200 and request.path.startswith('/'):
             excluded = ('/static/', '/media/', '/admin/', '/controlpanel/', '/payments/')
             if not request.path.startswith(excluded):
-                forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
-                ip_address = forwarded.split(',')[0].strip() if forwarded else request.META.get('REMOTE_ADDR')
+                ip_address = request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR')
                 product = None
                 if getattr(request, 'resolver_match', None) and request.resolver_match.url_name == 'product_detail':
                     product = Product.objects.filter(slug=request.resolver_match.kwargs.get('slug')).first()

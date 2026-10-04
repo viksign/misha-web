@@ -1,0 +1,19 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Staff account security{% endblock %} | MISHA</title>
+  <link rel="stylesheet" href="{% static 'css/shop.css' %}?v=20261004-staff-mfa">
+  {% block extra_media %}{% endblock %}
+</head>
+<body>
+<main class="section form-section staff-auth">
+  <p class="eyebrow">MISHA / STAFF SECURITY</p>
+  {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
+  {% block content_wrapper %}{% block content %}{% endblock %}{% endblock %}
+  <p><a href="{% url 'home' %}">Back to storefront</a> · <a href="{% url 'password_reset' %}">Reset password</a></p>
+</main>
+</body>
+</html>

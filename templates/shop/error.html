@@ -1,0 +1,23 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }} | Misha Island Heritage</title>
+  <link rel="stylesheet" href="{% static 'css/shop.css' %}?v=20261003-error-pages">
+</head>
+<body>
+  <header class="error-header">
+    <a href="/" aria-label="Misha Island Heritage home"><img src="{% static 'images/mih_logo.png' %}?v=20261003" alt="Misha Island Heritage" width="110" height="100"></a>
+  </header>
+  <main class="error-page">
+    <p class="eyebrow">{{ status }}</p>
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <p>For help, contact <a href="mailto:customercare@mishaislandheritage.com">customercare@mishaislandheritage.com</a>.</p>
+    <a class="button" href="/">Return home</a>
+  </main>
+</body>
+</html>

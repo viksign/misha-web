@@ -7,4 +7,46 @@
   <div class="management-form"><h2>{% if editing %}Edit delivery option{% else %}Add delivery option{% endif %}</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Save delivery option</button>{% if editing %}<a class="button outline" href="{% url 'control_delivery' %}">Cancel</a>{% endif %}</form></div>
   <div class="management-list"><h2>Delivery methods</h2>{% for option in options %}<div class="management-row"><div><strong>{{ option.label }}</strong><span>{{ option.code }} · £{{ option.price }}{% if option.free_over %} · Free over £{{ option.free_over }}{% endif %}</span></div><span>{% if option.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit={{ option.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="delivery_id" value="{{ option.pk }}"><button type="submit">Remove</button></form></div>{% empty %}<p>No delivery methods yet.</p>{% endfor %}</div>
 </section>
+<section class="section management-layout shipping-configuration">
+  <div class="management-form">
+    <p class="eyebrow">PARCEL CALCULATION</p>
+    <h2>Outer packaging</h2>
+    <p>Packaging weight is added once per order. Size allowances are added to the longest and widest product boxes; box heights are stacked.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_packaging">{{ packaging_form.as_p }}<button class="button" type="submit">Save packaging settings</button></form>
+  </div>
+  <div class="management-form" id="shipping-rates">
+    <p class="eyebrow">ROYAL MAIL</p>
+    <h2>{% if editing_rate %}Edit rate band{% else %}Add rate band{% endif %}</h2>
+    <p>Rates are selected by destination, delivery service, maximum packed weight, and maximum parcel dimensions.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_rate">{% if editing_rate %}<input type="hidden" name="rate_id" value="{{ editing_rate.pk }}">{% endif %}{{ rate_form.as_p }}<button class="button" type="submit">Save rate band</button>{% if editing_rate %}<a class="button outline" href="{% url 'control_delivery' %}#shipping-rates">Cancel</a>{% endif %}</form>
+  </div>
+</section>
+<section class="section shipping-rate-list">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">CONFIGURED RATES</p><h2>Parcel rate bands</h2></div><span>{{ rates|length }} rate{{ rates|length|pluralize }}</span></div>
+  {% for rate in rates %}
+    <div class="management-row"><div><strong>{{ rate.country }} · {{ rate.service.label }}</strong><span>Up to {{ rate.max_weight_grams }} g · {{ rate.max_length_cm }} × {{ rate.max_width_cm }} × {{ rate.max_height_cm }} cm · £{{ rate.price }}</span></div><span>{% if rate.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit_rate={{ rate.pk }}#shipping-rates">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_rate"><input type="hidden" name="rate_id" value="{{ rate.pk }}"><button type="submit">Remove</button></form></div>
+  {% empty %}<p>No parcel rates configured. Existing delivery prices remain in use until matching rate bands are added.</p>{% endfor %}
+</section>
+<section class="section" id="shipping-products">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">PRODUCT SHIPPING DATA</p><h2>Jewellery box weights and sizes</h2></div><span>{{ shipping_products|length }} product{{ shipping_products|length|pluralize }}</span></div>
+  <p>Enter the packaged jewellery-box weight and dimensions for each product. Leave dimensions blank until measured; products without complete box data use the current delivery price.</p>
+  <div class="shipping-product-list">
+    {% for row in shipping_products %}
+      <article class="shipping-product-row">
+        <h3>{{ row.product.name }} <small>{{ row.product.sku }}</small></h3>
+        <form method="post">
+          {% csrf_token %}<input type="hidden" name="action" value="save_product_shipping"><input type="hidden" name="product_id" value="{{ row.product.pk }}">
+          <div class="shipping-product-fields">
+            <label>{{ row.form.shipping_box_weight_grams.label }}{{ row.form.shipping_box_weight_grams }}</label>
+            <label>{{ row.form.shipping_box_length_cm.label }}{{ row.form.shipping_box_length_cm }}</label>
+            <label>{{ row.form.shipping_box_width_cm.label }}{{ row.form.shipping_box_width_cm }}</label>
+            <label>{{ row.form.shipping_box_height_cm.label }}{{ row.form.shipping_box_height_cm }}</label>
+            <button class="button outline" type="submit">Save measurements</button>
+          </div>
+          {% for field in row.form %}{% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}{% endfor %}
+        </form>
+      </article>
+    {% empty %}<p>No products to configure yet.</p>{% endfor %}
+  </div>
+</section>
 {% endblock %}

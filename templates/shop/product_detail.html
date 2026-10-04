@@ -1,1 +1,130 @@
-{% extends 'base.html' %}{% block title %}{{ product.name }} | MISHA{% endblock %}{% block content %}<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'home' %}">Home</a><span class="breadcrumb-sep">›</span><a href="{% url 'catalogue' %}">Jewellery</a><span class="breadcrumb-sep">›</span><span aria-current="page">{{ product.name }}</span></nav><section class="product-detail"><div class="gallery{% if product.images.all|length <= 1 %} gallery-single{% endif %}" data-gallery>{% for image in product.images.all %}<img data-gallery-image src="{{ image.image.url }}" alt="{{ image.alt_text|default:product.name }}"{% if not forloop.first %} hidden{% endif %}>{% empty %}<div class="placeholder">✿</div>{% endfor %}{% if product.images.all|length > 1 %}<button class="gallery-button gallery-previous" type="button" data-gallery-previous aria-label="Previous product image">‹</button><button class="gallery-button gallery-next" type="button" data-gallery-next aria-label="Next product image">›</button><div class="gallery-thumbnails">{% for image in product.images.all %}<button type="button" data-gallery-thumbnail="{{ forloop.counter0 }}" aria-label="View image {{ forloop.counter }}"><img src="{{ image.image.url }}" alt=""></button>{% endfor %}</div>{% endif %}</div><div class="product-copy"><p class="eyebrow">{{ product.collection.name|default:'MISHA COLLECTION' }}</p><h1>{{ product.name }}</h1><div class="price">£{{ product.price }}</div><p>{{ product.description }}</p><div class="product-specifications"><h2>Specifications</h2><dl><dt>Material</dt><dd>{{ product.material|default:'Gold plated' }}</dd><dt>SKU</dt><dd>{{ product.sku }}</dd>{% if product.size %}<dt>Size</dt><dd>{{ product.size }}</dd>{% endif %}{% if product.length %}<dt>Length</dt><dd>{{ product.length }}</dd>{% endif %}{% if product.weight %}<dt>Weight</dt><dd>{{ product.weight }}</dd>{% endif %}{% if product.dimensions %}<dt>Dimensions</dt><dd>{{ product.dimensions }}</dd>{% endif %}</dl>{% if product.technical_details %}<h3>Technical details</h3><p>{{ product.technical_details|linebreaksbr }}</p>{% endif %}</div>{% if product.in_stock %}<form method="post" action="{% url 'add_to_cart' product.pk %}">{% csrf_token %}<label>Quantity <input type="number" name="quantity" value="1" min="1" max="{{ product.stock_quantity }}"></label><button class="button" type="submit">Add to bag</button></form>{% else %}<p class="soldout">Currently unavailable</p>{% endif %}</div></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}{{ product.name }} | MISHA{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <a href="{% url 'home' %}">Home</a><span class="breadcrumb-sep">›</span>
+  <a href="{% url 'catalogue' %}">Jewellery</a><span class="breadcrumb-sep">›</span>
+  <span aria-current="page">{{ product.name }}</span>
+</nav>
+<section class="product-detail">
+  <div class="gallery{% if product.images.all|length <= 1 %} gallery-single{% endif %}" data-gallery>
+    {% for image in product.images.all %}
+      <img data-gallery-image src="{{ image.image.url }}" alt="{{ image.alt_text|default:product.name }}"{% if image.image_width and image.image_height %} width="{{ image.image_width }}" height="{{ image.image_height }}"{% endif %} loading="{% if forloop.first %}eager{% else %}lazy{% endif %}" decoding="async"{% if forloop.first %} fetchpriority="high"{% endif %} role="button" tabindex="0" aria-label="Enlarge product image {{ forloop.counter }}" title="Enlarge image"{% if not forloop.first %} hidden{% endif %}>
+    {% empty %}
+      <div class="placeholder">✿</div>
+    {% endfor %}
+    {% if product.images.all|length > 1 %}
+      <button class="gallery-button gallery-previous" type="button" data-gallery-previous aria-label="Previous product image">‹</button>
+      <button class="gallery-button gallery-next" type="button" data-gallery-next aria-label="Next product image">›</button>
+      <div class="gallery-thumbnails">
+        {% for image in product.images.all %}
+          <button type="button" data-gallery-thumbnail="{{ forloop.counter0 }}" aria-label="View image {{ forloop.counter }}"><img src="{{ image.image.url }}" alt="" width="58" height="58" loading="lazy" decoding="async"></button>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+  {% if product.images.all %}
+    <dialog class="gallery-lightbox" data-gallery-lightbox aria-label="Enlarged product images">
+      <span class="gallery-lightbox-count" data-gallery-lightbox-count aria-live="polite"></span>
+      <button class="gallery-lightbox-close" type="button" data-gallery-lightbox-close aria-label="Close enlarged image" title="Close">×</button>
+      <img class="gallery-lightbox-image" data-gallery-lightbox-image alt="">
+      <button class="gallery-lightbox-previous" type="button" data-gallery-lightbox-previous aria-label="Previous image" title="Previous image"{% if product.images.all|length <= 1 %} hidden{% endif %}>‹</button>
+      <button class="gallery-lightbox-next" type="button" data-gallery-lightbox-next aria-label="Next image" title="Next image"{% if product.images.all|length <= 1 %} hidden{% endif %}>›</button>
+    </dialog>
+  {% endif %}
+  <div class="product-copy">
+    <p class="eyebrow">{{ product.collection.name|default:'MISHA COLLECTION' }}</p>
+    <h1>{{ product.name }}</h1>
+    <div class="price">£{{ product.price }}</div>
+    {% if product.in_stock %}
+      <form class="product-purchase-form" method="post" action="{% url 'add_to_cart' product.pk %}">
+        {% csrf_token %}
+        <label>Quantity <input type="number" name="quantity" value="1" min="1" max="{{ product.stock_quantity }}"></label>
+        <button class="button" type="submit">Add to bag</button>
+      </form>
+    {% else %}
+      <div class="soldout" id="stock-notification">
+        {% if product.preorder_enabled %}
+          <p>Pre-order this piece.</p>
+          {% if request.user.is_authenticated %}
+            <form class="interest-form" method="post" action="{% url 'preorder_interest_product' product.slug %}">
+              {% csrf_token %}
+              <label>Quantity <input type="number" name="quantity" value="1" min="1" max="99"></label>
+              <button class="button" type="submit">Join pre-order list</button>
+            </form>
+          {% else %}
+            <p class="interest-register-prompt">Please register to join the pre-order list. <a href="{% url 'signup' %}">Create an account</a>.</p>
+          {% endif %}
+        {% else %}
+          <p class="soldout-label">Sold out</p>
+          <p>Be the first to know when it returns.</p>
+          {% if request.user.is_authenticated %}<form class="interest-form" method="post" action="{% url 'restock_notification' product.slug %}">{% csrf_token %}<button class="button" type="submit">Notify me</button></form>{% else %}<div class="product-notify-action"><button class="button" type="button" data-notify-open>Notify me</button><p class="interest-register-prompt">Register to manage your notification preferences. <a href="{% url 'signup' %}">Create an account</a>.</p></div>{% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+    <div class="product-service-summary" aria-label="Delivery information">
+      <div><strong>Delivery options</strong><span>Rates and available services are shown at checkout.</span></div>
+      <div><strong>Order tracking</strong><span>Tracking details are sent after dispatch.</span></div>
+    </div>
+    <section class="product-overview" aria-labelledby="product-overview-title">
+      <h2 id="product-overview-title">Product Overview</h2>
+      <p>{{ product.description }}</p>
+    </section>
+    <div class="product-accordions">
+      <details class="product-accordion">
+        <summary>Product Details</summary>
+        <div class="product-accordion-content">
+          <dl>
+            <dt>Material</dt><dd>{{ product.material|default:'Gold plated' }}</dd>
+            <dt>SKU</dt><dd>{{ product.sku }}</dd>
+            {% if product.size %}<dt>Size</dt><dd>{{ product.size }}</dd>{% endif %}
+            {% if product.length %}<dt>Length</dt><dd>{{ product.length }}</dd>{% endif %}
+            {% if product.weight %}<dt>Weight</dt><dd>{{ product.weight }}</dd>{% endif %}
+            {% if product.dimensions %}<dt>Dimensions</dt><dd>{{ product.dimensions }}</dd>{% endif %}
+          </dl>
+          {% if product.technical_details %}<h3>Specifications</h3><p>{{ product.technical_details|linebreaksbr }}</p>{% endif %}
+        </div>
+      </details>
+      <details class="product-accordion">
+        <summary>Shipment and Delivery</summary>
+        <div class="product-accordion-content">
+          <h3>Order Processing</h3>
+          <p>All orders are carefully prepared and dispatched within <strong>1–3 business days</strong>. Please note that weekends and public holidays are not included in the processing timeframe.</p>
+          <h3>Shipping Options</h3>
+          <ul class="product-shipping-options">
+            <li><strong>UK Standard Delivery:</strong> 3–5 business days — <strong>£3.99</strong></li>
+            <li><strong>USA Standard Delivery (Royal Mail):</strong> 7–15 business days — <strong>£11.99</strong></li>
+            <li><strong>Europe Standard Delivery (Royal Mail):</strong> 7–15 business days — <strong>£9.99</strong></li>
+            <li><strong>Canada &amp; International Standard Delivery (Royal Mail):</strong> 10–25 business days — <strong>£11.99</strong></li>
+          </ul>
+          <h3>Tracking</h3>
+          <p>Once your order has been dispatched, you’ll receive an email containing your tracking information so you can follow its journey.</p>
+          <h3>International Delivery</h3>
+          <p>For orders shipped outside the UK, delivery times can vary depending on the destination. Customs processing, local postal services, and other factors may occasionally cause additional delays.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+{% if not request.user.is_authenticated and not product.in_stock and not product.preorder_enabled %}
+<div class="product-modal" data-notify-modal hidden>
+  <div class="product-modal-backdrop" data-notify-close></div>
+  <div class="product-modal-panel" role="dialog" aria-modal="true" aria-labelledby="notify-modal-title">
+    <div class="product-modal-heading">
+      <h2 id="notify-modal-title">Get a stock notification</h2>
+      <button class="modal-close" type="button" data-notify-close aria-label="Close notification form">&times;</button>
+    </div>
+    <p>Enter your email and we will let you know when {{ product.name }} is available again.</p>
+    <form method="post" action="{% url 'restock_notification' product.slug %}">
+      {% csrf_token %}
+      <label for="notify-email">Email address</label>
+      <input id="notify-email" name="email" type="email" maxlength="254" autocomplete="email" required>
+      <div class="product-modal-actions">
+        <button class="button" type="submit">Notify me</button>
+        <button class="button outline" type="button" data-notify-close>Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

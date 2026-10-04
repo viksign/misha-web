@@ -8,6 +8,7 @@ RUN apt-get update \
     default-libmysqlclient-dev \
     build-essential \
     pkg-config \
+    gettext \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,6 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN python manage.py compilemessages --ignore=venv
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
     && chmod +x /app/deploy/web-entrypoint.sh

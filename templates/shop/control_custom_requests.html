@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Custom Requests | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / CUSTOMER VOICE</p><h1>Custom requests</h1><p>Review customer ideas, check reference photos and reply by email.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section custom-requests-dashboard">
+  <div class="product-table-wrap">
+    <table class="product-table">
+      <thead><tr><th>Request</th><th>Customer</th><th>Details</th><th>Photo</th><th>Status and reply</th></tr></thead>
+      <tbody>
+        {% for item in custom_requests %}
+          <tr>
+            <td><strong>{{ item.title }}</strong><small>{{ item.created_at|date:'j M Y, H:i' }}</small></td>
+            <td>{{ item.user.email }}</td>
+            <td><strong>Product</strong><small>{{ item.product_details|truncatechars:140 }}</small>{% if item.material %}<small>Material: {{ item.material }}</small>{% endif %}{% if item.budget %}<small>Budget: {{ item.budget }}</small>{% endif %}</td>
+            <td>{% if item.photo %}<a href="{% url 'custom_design_photo' item.pk %}">Download photo</a>{% else %}None{% endif %}</td>
+            <td>
+              <form method="post" class="custom-request-action-form">
+                {% csrf_token %}
+                <input type="hidden" name="request_id" value="{{ item.pk }}">
+                <select name="status" aria-label="Status for {{ item.title }}">{% for value, label in status_choices %}<option value="{{ value }}"{% if item.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+                <textarea name="message" rows="3" placeholder="Reply to the customer..."></textarea>
+                <button class="button" type="submit">Save and reply</button>
+              </form>
+              {% for reply in item.replies.all %}<div class="custom-request-admin-reply"><strong>{{ reply.staff_user.email|default:'MISHA' }}</strong><p>{{ reply.message|linebreaksbr }}</p><small>{{ reply.created_at|date:'j M Y, H:i' }}</small></div>{% endfor %}
+            </td>
+          </tr>
+        {% empty %}<tr><td colspan="5" class="empty-table">No custom requests yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

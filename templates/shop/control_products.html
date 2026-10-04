@@ -7,8 +7,13 @@
   <form class="catalogue-search" method="get">
     <label for="product-search">Search products</label>
     <input id="product-search" type="search" name="q" value="{{ query }}" placeholder="Name or SKU">
+    <label for="product-collection-filter">Collection</label>
+    <select id="product-collection-filter" name="collection">
+      <option value="">All collections</option>
+      {% for collection in collections %}<option value="{{ collection.slug }}"{% if collection_filter == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}
+    </select>
     <button class="button" type="submit">Search</button>
-    {% if query %}<a class="button outline" href="{% url 'control_products' %}">Clear</a>{% endif %}
+    {% if query or collection_filter %}<a class="button outline" href="{% url 'control_products' %}">Clear</a>{% endif %}
   </form>
   <button class="button" type="button" data-product-modal-open>Add product</button>
 </section>
@@ -16,20 +21,22 @@
   <div class="product-catalogue-heading"><div><p class="eyebrow">CATALOGUE</p><h2>All products</h2></div><span>{{ products|length }} result{{ products|length|pluralize }}</span></div>
   <div class="product-table-wrap">
     <table class="product-table">
-      <thead><tr><th>Product</th><th>SKU</th><th>Price</th><th>Images</th><th>In stock</th><th>Pending orders</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Product</th><th>SKU</th><th>Collection</th><th>Featured</th><th>Price</th><th>Images</th><th>In stock</th><th>Pending orders</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {% for product in products %}
         <tr>
           <td><strong>{{ product.name }}</strong><small>{{ product.short_description|default:'No short description' }}</small></td>
           <td>{{ product.sku }}</td>
+          <td>{{ product.collection.name|default:'Unassigned' }}</td>
+          <td>{% if product.featured %}Yes{% else %}No{% endif %}</td>
           <td>£{{ product.price }}</td>
           <td>{{ product.images.all|length }}</td>
           <td><span class="product-stock {% if product.stock_quantity == 0 %}is-empty{% elif product.stock_quantity <= 5 %}is-low{% endif %}">{{ product.stock_quantity }}</span></td>
           <td><span class="product-pending">{{ product.pending_orders }}</span></td>
           <td><span class="product-status {% if product.active %}is-active{% else %}is-hidden{% endif %}">{% if product.active %}Active{% else %}Hidden{% endif %}</span></td>
-          <td class="product-actions"><a class="table-action" href="?edit={{ product.pk }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="{{ product.pk }}"><button class="table-action danger" type="submit">Remove</button></form></td>
+          <td class="product-actions"><a class="table-action" href="?edit={{ product.pk }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}{% if collection_filter %}&amp;collection={{ collection_filter|urlencode }}{% endif %}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="{{ product.pk }}"><button class="table-action danger" type="submit">Remove</button></form></td>
         </tr>
-        {% empty %}<tr><td colspan="8" class="empty-table">No products match your search.</td></tr>{% endfor %}
+        {% empty %}<tr><td colspan="10" class="empty-table">No products match your search.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

@@ -1,1 +1,28 @@
-{% extends 'base.html' %}{% block title %}Jewellery | MISHA Island Heritage{% endblock %}{% block content %}<section class="page-head"><p class="eyebrow">THE COLLECTION</p><h1>Jewellery</h1><p>Discover pieces inspired by island nature, heritage and generations.</p></section><section class="section"><form class="filters" method="get"><input name="q" value="{{ query }}" placeholder="Search jewellery"><select name="collection"><option value="">All collections</option>{% for c in collections %}<option value="{{ c.slug }}" {% if current_collection == c.slug %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select><button class="button" type="submit">Filter</button></form><div class="grid">{% for product in products %}{% include 'shop/_product_card.html' with product=product %}{% empty %}<p>No jewellery found.</p>{% endfor %}</div></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Jewellery | MISHA Island Heritage{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">THE COLLECTION</p>
+	<h1>Jewellery</h1>
+	<p>Discover pieces inspired by island nature, heritage and generations.</p>
+</section>
+<section class="section">
+	<form class="filters" method="get">
+		<input name="q" value="{{ query }}" placeholder="Search jewellery" aria-label="Search jewellery">
+		<select name="collection" aria-label="Filter by collection">
+			<option value="">All collections</option>
+			{% for collection in collections %}<option value="{{ collection.slug }}"{% if current_collection == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}
+		</select>
+		<button class="button" type="submit">Filter</button>
+		<select name="sort" aria-label="Sort jewellery">
+			<option value="default"{% if current_sort == 'default' %} selected{% endif %}>Default order</option>
+			<option value="price_asc"{% if current_sort == 'price_asc' %} selected{% endif %}>Price: low to high</option>
+			<option value="price_desc"{% if current_sort == 'price_desc' %} selected{% endif %}>Price: high to low</option>
+			<option value="preorder_first"{% if current_sort == 'preorder_first' %} selected{% endif %}>Pre-order first</option>
+		</select>
+	</form>
+	<div class="grid">
+		{% for product in products %}{% include 'shop/_product_card.html' with product=product %}{% empty %}<p>No jewellery found.</p>{% endfor %}
+	</div>
+</section>
+{% endblock %}

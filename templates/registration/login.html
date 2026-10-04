@@ -13,6 +13,7 @@
 		<button class="button" type="submit">Sign in</button>
 	</form>
 	<p class="auth-switch"><a href="{% url 'password_reset' %}">Forgot your password?</a></p>
+	<p class="auth-switch"><a href="{% url 'two_factor:login' %}">Staff sign-in with authenticator</a></p>
 	<p class="auth-switch">New to MISHA? <a href="{% url 'account' %}">Create an account</a></p>
 </section>
 {% endblock %}

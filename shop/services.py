@@ -1,14 +1,21 @@
 from decimal import Decimal
+import logging
 from datetime import datetime, timezone as datetime_timezone
 from email.mime.image import MIMEImage
 from io import BytesIO
 from ipaddress import ip_address as parse_ip_address
 from pathlib import Path
+from smtplib import SMTPException
+from urllib.parse import quote
 
 import requests
 import stripe
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core import signing
+from django.core.exceptions import ImproperlyConfigured
+from django.core.mail import EmailMultiAlternatives, send_mail
+from django.db import transaction
+from django.db.models import Sum
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +28,98 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 from .models import IPGeolocation
 
+logger = logging.getLogger(__name__)
+
+
+def send_preorder_request_emails(signup):
+    from .models import InterestSignup
+
+    if not isinstance(signup, InterestSignup) or signup.interest_type != 'preorder' or not signup.product:
+        return {'customer': False, 'admin': False}
+
+    product_url = f'{settings.SITE_URL}{signup.product.get_absolute_url()}'
+    customer_name = signup.user.get_full_name() if signup.user else ''
+    greeting = f'Hello {customer_name},' if customer_name else 'Hello,'
+    customer_message = (
+        f'{greeting}\n\n'
+        f'We have received your pre-order request for {signup.desired_quantity} '
+        f'unit(s) of {signup.product.name}. This is a request, not a confirmed order. '
+        f'We will be in touch with further updates.\n\n'
+        f'View the piece: {product_url}\n\n'
+        'MISHA Island Heritage'
+    )
+    admin_message = (
+        'A new pre-order request has been submitted.\n\n'
+        f'Customer: {customer_name or "Registered customer"}\n'
+        f'Email: {signup.email}\n'
+        f'Product: {signup.product.name}\n'
+        f'Quantity requested: {signup.desired_quantity}\n'
+        f'Requested: {timezone.localtime(signup.created_at).strftime("%d %b %Y, %H:%M %Z")}\n'
+        f'Product page: {product_url}\n'
+        f'Staff stock panel: {settings.SITE_URL}{reverse("control_stock")}'
+    )
+    email_jobs = [
+        (
+            'customer',
+            f'Pre-order request received: {signup.product.name} | MISHA Island Heritage',
+            customer_message,
+            signup.email.strip(),
+        ),
+        (
+            'admin',
+            f'New pre-order request: {signup.product.name}',
+            admin_message,
+            settings.PREORDER_NOTIFICATION_EMAIL.strip(),
+        ),
+    ]
+    delivery_status = {'customer': False, 'admin': False}
+
+    for recipient_type, subject, message, recipient in email_jobs:
+        if not recipient:
+            logger.error('Cannot send pre-order %s email for signup %s: recipient is not configured', recipient_type, signup.pk)
+            continue
+        try:
+            sent_count = send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient], fail_silently=False)
+        except (OSError, SMTPException):
+            logger.exception('Failed to send pre-order %s email for signup %s', recipient_type, signup.pk)
+        else:
+            delivery_status[recipient_type] = sent_count == 1
+            if sent_count != 1:
+                logger.error('Pre-order %s email for signup %s was not sent', recipient_type, signup.pk)
+
+    return delivery_status
+
+
+def send_restock_notification(signup):
+    from .models import InterestSignup
+
+    if not isinstance(signup, InterestSignup) or signup.interest_type not in {'restock', 'preorder'} or signup.notified_at or not signup.product:
+        return False
+    token = signing.dumps({'product_id': signup.product_id}, salt='restock-add-to-bag')
+    add_to_bag_url = f'{settings.SITE_URL}{reverse("restock_add_to_bag", args=[signup.product.slug])}?token={quote(token, safe="")}'
+    context = {
+        'signup': signup,
+        'product': signup.product,
+        'is_preorder': signup.interest_type == 'preorder',
+        'add_to_bag_url': add_to_bag_url,
+        'shop_url': settings.SITE_URL,
+    }
+    subject = (
+        f'{signup.product.name} is ready to order | MISHA Island Heritage'
+        if signup.interest_type == 'preorder'
+        else f'{signup.product.name} is back in stock | MISHA Island Heritage'
+    )
+    message = EmailMultiAlternatives(
+        subject,
+        render_to_string('shop/restock_notification_email.txt', context),
+        settings.DEFAULT_FROM_EMAIL,
+        [signup.email],
+    )
+    message.extra_headers['X-SMTPAPI'] = '{"filters":{"clicktrack":{"settings":{"enable":0}}}}'
+    message.attach_alternative(render_to_string('shop/restock_notification_email.html', context), 'text/html')
+    message.send(fail_silently=False)
+    return True
+
 
 def send_order_confirmation(order_id):
     from .models import Order
@@ -32,12 +131,13 @@ def send_order_confirmation(order_id):
         'order': order,
         'logo_url': f'{settings.SITE_URL}/static/images/mih_logo.png',
     }
-    subject = f'Order from Misha Island | Heritage #{order.order_reference or order.pk}'
+    subject = f'Order from Misha Island Heritage #{order.order_reference or order.pk}'
     message = EmailMultiAlternatives(
         subject,
         render_to_string('shop/order_confirmation_email.txt', context),
         settings.DEFAULT_FROM_EMAIL,
         [order.email],
+        bcc=['mishaislandheritage@gmail.com'],
     )
     message.attach_alternative(render_to_string('shop/order_confirmation_email.html', context), 'text/html')
 
@@ -53,6 +153,34 @@ def send_order_confirmation(order_id):
         build_order_pdf(order),
         'application/pdf',
     )
+    message.send(fail_silently=False)
+    return True
+
+
+def send_tracking_email(order_id):
+    from .models import Order
+
+    order = Order.objects.get(pk=order_id)
+    if not order.email or order.status != 'shipped' or not order.tracking_number:
+        return False
+    context = {
+        'order': order,
+        'logo_url': f'{settings.SITE_URL}/static/images/mih_logo.png',
+    }
+    subject = f'Your Misha Island Heritage order has shipped | {order.order_reference or order.pk}'
+    message = EmailMultiAlternatives(
+        subject,
+        render_to_string('shop/tracking_email.txt', context),
+        settings.DEFAULT_FROM_EMAIL,
+        [order.email],
+    )
+    message.attach_alternative(render_to_string('shop/tracking_email.html', context), 'text/html')
+    logo_path = Path(settings.BASE_DIR) / 'static' / 'images' / 'mih_logo.png'
+    if logo_path.exists():
+        logo = MIMEImage(logo_path.read_bytes())
+        logo.add_header('Content-ID', '<misha-logo>')
+        logo.add_header('Content-Disposition', 'inline', filename='mih_logo.png')
+        message.attach(logo)
     message.send(fail_silently=False)
     return True
 
@@ -95,6 +223,31 @@ def update_stripe_payment_details(order, payment_intent_id):
     order.payment_date = datetime.fromtimestamp(created, tz=datetime_timezone.utc) if created else timezone.now()
     order.save(update_fields=['payment_method', 'transaction_id', 'payment_date', 'updated_at'])
     return True
+
+
+def mark_order_paid(order, stock_actor=None):
+    from .models import Order, Product
+
+    with transaction.atomic():
+        locked_order = Order.objects.select_for_update().get(pk=order.pk)
+        if not locked_order.stock_deducted_at:
+            quantities = dict(locked_order.items.values('product_id').annotate(units=Sum('quantity')).values_list('product_id', 'units'))
+            for product in Product.objects.select_for_update().filter(pk__in=quantities).order_by('pk'):
+                if product.stock_quantity < quantities[product.pk]:
+                    logger.error('Paid order %s exceeds available stock for product %s: ordered %s, available %s', locked_order.pk, product.pk, quantities[product.pk], product.stock_quantity)
+                product.stock_quantity = max(0, product.stock_quantity - quantities[product.pk])
+                product.save(update_fields=['stock_quantity', 'updated_at'], stock_actor=stock_actor, stock_reason='gift' if locked_order.payment_channel == 'gift' else 'sale', stock_order=locked_order)
+            locked_order.stock_deducted_at = timezone.now()
+        if locked_order.payment_status not in {'partially_refunded', 'refunded'}:
+            locked_order.payment_status = 'paid'
+        if locked_order.status in {'pending', 'paid'}:
+            locked_order.status = 'pending'
+        locked_order.paid_at = locked_order.paid_at or timezone.now()
+        locked_order.save(update_fields=['payment_status', 'status', 'paid_at', 'stock_deducted_at', 'updated_at'])
+    order.refresh_from_db()
+
+def mark_stripe_order_paid(order):
+    return mark_order_paid(order)
 
 
 def build_order_pdf(order):
@@ -229,7 +382,7 @@ def resolve_ip_locations(ip_addresses):
 
 def create_stripe_checkout(order, request):
     if not settings.STRIPE_SECRET_KEY:
-        raise RuntimeError('STRIPE_SECRET_KEY is not configured.')
+        raise ImproperlyConfigured('STRIPE_SECRET_KEY is not configured.')
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     line_items = []
@@ -262,9 +415,9 @@ def create_stripe_checkout(order, request):
         line_items=line_items,
         customer_email=order.email,
         metadata={'order_id': str(order.pk)},
+        payment_intent_data={'metadata': {'order_id': str(order.pk)}},
         success_url=f'{base}{reverse("checkout_success")}?session_id={{CHECKOUT_SESSION_ID}}',
         cancel_url=f'{base}{reverse("checkout")}',
-        payment_method_types=['card'],
     )
 
     order.stripe_session_id = session.id
