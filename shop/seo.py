@@ -132,3 +132,10 @@ def google_verification(request):
         (settings.BASE_DIR / 'static/web/google26bfb82dbebf9ae3.html').open('rb'),
         content_type='text/html; charset=utf-8',
     )
+
+
+def favicon(request):
+    return FileResponse(
+        (settings.BASE_DIR / 'static/images/favourite.ico').open('rb'),
+        content_type='image/x-icon',
+    )

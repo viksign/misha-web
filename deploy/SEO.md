@@ -2,6 +2,10 @@
 
 Preferred public origin: https://www.mishaislandheritage.com
 
+The browser favicon is `static/images/favourite.ico`, referenced by the
+storefront, staff authentication and error-page templates. `/favicon.ico`
+also serves the same file for clients that request the conventional root URL.
+
 ## Preferred hostname update: 8 October 2026
 
 The preferred SEO hostname is now `www.mishaislandheritage.com`. Sitemap index
