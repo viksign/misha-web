@@ -87,6 +87,11 @@ If a URL-prefix property is preferred, use `https://mishaislandheritage.com/`.
 The existing optional `GOOGLE_SITE_VERIFICATION` setting supports Google's HTML
 meta-tag method. Do not replace unrelated Google Analytics or Ads settings.
 
+For HTML-file verification, the uploaded `static/web/google26bfb82dbebf9ae3.html`
+is served unchanged at `/google26bfb82dbebf9ae3.html` on both public hostnames.
+Keep the file and its root route after verification succeeds; Google may
+recheck ownership. The verification file does not belong in the sitemap.
+
 ## Merchant Center: required manual steps
 
 1. Run representative product pages through https://search.google.com/test/rich-results.
