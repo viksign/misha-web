@@ -7,7 +7,7 @@ from django.urls import include, path
 from shop.forms import EmailAuthenticationForm
 from shop.sitemaps import CollectionSitemap, ProductSitemap, StaticViewSitemap
 from shop.views import robots_txt
-from shop.seo import sitemap_index, sitemap_section
+from shop.seo import google_verification, sitemap_index, sitemap_section
 
 handler400 = 'shop.errors.bad_request'
 handler403 = 'shop.errors.permission_denied'
@@ -21,6 +21,7 @@ sitemaps = {
 }
 
 urlpatterns = [
+    path('google26bfb82dbebf9ae3.html', google_verification, name='google_verification'),
     path('staff-auth/', include('shop.staff_auth_urls')),
     path('admin/', admin.site.urls),
     path('sitemap.xml', sitemap_index, {'sitemaps': sitemaps}, name='sitemap_index'),

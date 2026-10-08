@@ -48,6 +48,18 @@ class SeoTests(TestCase):
         self.collection = Collection.objects.create(name='Island collection', slug='island-seo', description='Actual collection description.')
         self.product = Product.objects.create(name='Real pendant', slug='real-seo-pendant', sku='SEO-001', description='Actual stainless steel pendant.', price='29.99', stock_quantity=5, collection=self.collection)
 
+    @override_settings(ALLOWED_HOSTS=['mishaislandheritage.com', 'www.mishaislandheritage.com'])
+    def test_google_verification_is_public_at_exact_root_path(self):
+        expected = b'google-site-verification: google26bfb82dbebf9ae3.html'
+        for host in ['mishaislandheritage.com', 'www.mishaislandheritage.com']:
+            with self.subTest(host=host):
+                response = self.client.get('/google26bfb82dbebf9ae3.html', HTTP_HOST=host)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(b''.join(response.streaming_content).strip(), expected)
+                self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
+                self.assertNotIn('Location', response)
+                response.close()
+
     def test_public_pages_have_canonical_and_indexable_metadata(self):
         for path in ['/', '/jewellery/', '/heritage/', '/contact/', self.product.get_absolute_url(), self.collection.get_absolute_url()]:
             with self.subTest(path=path):

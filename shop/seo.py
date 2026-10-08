@@ -1,8 +1,9 @@
 import json
 from urllib.parse import urljoin
 
+from django.conf import settings
 from django.contrib.sitemaps.views import index, sitemap
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.templatetags.static import static
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
@@ -124,3 +125,10 @@ def robots_response(request):
     lines.extend('Disallow: ' + path for path in PRIVATE_PREFIXES)
     lines.append('Sitemap: ' + PUBLIC_ORIGIN + '/sitemap.xml')
     return HttpResponse('\n'.join(lines) + '\n', content_type='text/plain; charset=utf-8')
+
+
+def google_verification(request):
+    return FileResponse(
+        (settings.BASE_DIR / 'static/web/google26bfb82dbebf9ae3.html').open('rb'),
+        content_type='text/html; charset=utf-8',
+    )
