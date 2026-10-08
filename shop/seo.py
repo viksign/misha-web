@@ -9,8 +9,8 @@ from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
 
 
-PUBLIC_ORIGIN = 'https://mishaislandheritage.com'
-PUBLIC_DOMAIN = 'mishaislandheritage.com'
+PUBLIC_ORIGIN = 'https://www.mishaislandheritage.com'
+PUBLIC_DOMAIN = 'www.mishaislandheritage.com'
 BRAND = 'Misha Island Heritage'
 PUBLIC_VIEWS = {'home', 'catalogue', 'collection', 'product_detail', 'heritage', 'contact'}
 PRIVATE_PREFIXES = ('/admin/', '/controlpanel/', '/account/', '/bag/', '/checkout/', '/payments/', '/login/', '/logout/', '/password-reset/', '/assistant/', '/analytics/', '/custom-design/', '/feedback/', '/review/')

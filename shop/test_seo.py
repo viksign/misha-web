@@ -60,15 +60,18 @@ class SeoTests(TestCase):
                 self.assertNotIn('Location', response)
                 response.close()
 
+    @override_settings(ALLOWED_HOSTS=['mishaislandheritage.com', 'www.mishaislandheritage.com'])
     def test_public_pages_have_canonical_and_indexable_metadata(self):
-        for path in ['/', '/jewellery/', '/heritage/', '/contact/', self.product.get_absolute_url(), self.collection.get_absolute_url()]:
-            with self.subTest(path=path):
-                response = self.client.get(path)
-                self.assertEqual(response.status_code, 200)
-                metadata = PageMetadata(response.content.decode())
-                self.assertEqual(metadata.links['canonical'], PUBLIC_ORIGIN + path)
-                self.assertEqual(metadata.meta['robots'], 'index, follow')
-                self.assertNotIn('noindex', response.get('X-Robots-Tag', ''))
+        self.assertEqual(PUBLIC_ORIGIN, 'https://www.mishaislandheritage.com')
+        for host in ['mishaislandheritage.com', 'www.mishaislandheritage.com']:
+            for path in ['/', '/jewellery/', '/heritage/', '/contact/', self.product.get_absolute_url(), self.collection.get_absolute_url()]:
+                with self.subTest(host=host, path=path):
+                    response = self.client.get(path, HTTP_HOST=host)
+                    self.assertEqual(response.status_code, 200)
+                    metadata = PageMetadata(response.content.decode())
+                    self.assertEqual(metadata.links['canonical'], PUBLIC_ORIGIN + path)
+                    self.assertEqual(metadata.meta['robots'], 'index, follow')
+                    self.assertNotIn('noindex', response.get('X-Robots-Tag', ''))
 
     def test_private_and_internal_search_pages_are_noindex(self):
         for path in ['/login/', '/account/', '/bag/', '/password-reset/', '/jewellery/?q=pendant', '/jewellery/?sort=price_asc']:
@@ -90,6 +93,8 @@ class SeoTests(TestCase):
         self.assertEqual(schema['@type'], 'Product')
         self.assertEqual(schema['name'], self.product.name)
         self.assertEqual(schema['sku'], 'SEO-001')
+        self.assertEqual(schema['url'], PUBLIC_ORIGIN + self.product.get_absolute_url())
+        self.assertEqual(schema['offers']['url'], schema['url'])
         self.assertEqual(schema['offers']['price'], '29.99')
         self.assertEqual(schema['offers']['priceCurrency'], 'GBP')
         self.assertEqual(schema['offers']['availability'], 'https://schema.org/InStock')
@@ -106,6 +111,9 @@ class SeoTests(TestCase):
         home = PageMetadata(self.client.get('/').content.decode())
         graph = json.loads(home.scripts[0])['@graph']
         self.assertEqual([entry['@type'] for entry in graph], ['Organization', 'WebSite'])
+        for entry in graph:
+            self.assertEqual(entry['url'], PUBLIC_ORIGIN + '/')
+            self.assertTrue(entry['@id'].startswith(PUBLIC_ORIGIN + '/'))
         self.assertNotIn('address', graph[0])
         collection = PageMetadata(self.client.get(self.collection.get_absolute_url()).content.decode())
         self.assertEqual(collection.meta['description'], self.collection.description)
@@ -115,7 +123,7 @@ class SeoTests(TestCase):
     def test_robots_and_sitemaps_never_use_runtime_internal_hosts(self):
         robots = self.client.get('/robots.txt')
         self.assertEqual(robots.status_code, 200)
-        self.assertContains(robots, 'Sitemap: https://mishaislandheritage.com/sitemap.xml')
+        self.assertContains(robots, 'Sitemap: https://www.mishaislandheritage.com/sitemap.xml')
         self.assertNotContains(robots, 'Disallow: /\n')
         self.assertContains(robots, 'Disallow: /admin/')
         root = ET.fromstring(self.client.get('/sitemap.xml').content)
@@ -123,7 +131,7 @@ class SeoTests(TestCase):
         self.assertEqual(len(sections), 3)
         public_urls = []
         for url in sections:
-            self.assertEqual(urlparse(url).netloc, 'mishaislandheritage.com')
+            self.assertEqual(urlparse(url).netloc, 'www.mishaislandheritage.com')
             self.assertEqual(urlparse(url).scheme, 'https')
             response = self.client.get(urlparse(url).path)
             self.assertEqual(response.status_code, 200)

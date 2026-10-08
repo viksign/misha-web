@@ -1,6 +1,14 @@
 # Google Search and ecommerce readiness
 
-Preferred public origin: https://mishaislandheritage.com
+Preferred public origin: https://www.mishaislandheritage.com
+
+## Preferred hostname update: 8 October 2026
+
+The preferred SEO hostname is now `www.mishaislandheritage.com`. Sitemap index
+links, sitemap page URLs, canonical/social metadata, structured data and the
+robots sitemap declaration use this hostname consistently. Both HTTPS
+hostnames remain accessible; no forced host redirect or session change was
+introduced. The audit below describes the earlier non-www configuration.
 
 ## Audit and verification: 4 October 2026
 
@@ -55,8 +63,8 @@ Preferred public origin: https://mishaislandheritage.com
   access-control mechanism or a guarantee that an already indexed URL disappears.
 - The standard noindex header on sitemap XML is intentional: Google reads the
   sitemap without indexing the XML itself as a search result.
-- `www` remains reachable to preserve existing host-scoped customer sessions and
-  carts. Its public pages declare the non-www canonical. A forced host migration
+- Both hostnames remain reachable to preserve existing host-scoped customer
+  sessions and carts. Public pages declare the www canonical. A forced host migration
   should be planned separately if desired; HTTP-to-HTTPS and trailing-slash
   redirects are preserved.
 - Product image dimensions and loading hints are added without recompression or
@@ -74,7 +82,7 @@ Preferred public origin: https://mishaislandheritage.com
    **Name** `@`, **Content** equal to Google's exact value, and automatic TTL.
    Preserve every existing DNS record. TXT records are DNS-only, not proxied.
 5. Return to Search Console and select **Verify** once the record has propagated.
-6. Under **Sitemaps**, submit `https://mishaislandheritage.com/sitemap.xml`.
+6. Under **Sitemaps**, submit `https://www.mishaislandheritage.com/sitemap.xml`.
 7. Inspect the homepage, `/jewellery/`, `/heritage/`, each important active
    `/collection/<slug>/`, and representative `/jewellery/<slug>/` URLs. Run a
    live URL test and request indexing when the page is eligible.
@@ -83,7 +91,7 @@ Preferred public origin: https://mishaislandheritage.com
 8. Review Page indexing, Sitemaps, Product snippets and Merchant listings reports.
    Confirm Google-selected canonical URLs and actual indexing separately.
 
-If a URL-prefix property is preferred, use `https://mishaislandheritage.com/`.
+If a URL-prefix property is preferred, use `https://www.mishaislandheritage.com/`.
 The existing optional `GOOGLE_SITE_VERIFICATION` setting supports Google's HTML
 meta-tag method. Do not replace unrelated Google Analytics or Ads settings.
 
@@ -121,5 +129,5 @@ recheck ownership. The verification file does not belong in the sitemap.
 
 Expected entry points:
 
-- https://mishaislandheritage.com/robots.txt
-- https://mishaislandheritage.com/sitemap.xml
+- https://www.mishaislandheritage.com/robots.txt
+- https://www.mishaislandheritage.com/sitemap.xml
