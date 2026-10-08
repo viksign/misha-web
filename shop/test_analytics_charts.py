@@ -250,6 +250,55 @@ class AnalyticsChartTests(TestCase):
         response = self.client.get(reverse('control_analytics'), {**self.params, 'q': 'London', 'country': 'Canada'})
         self.assertEqual(response.context['event_page'].paginator.count, 1)
 
+    @override_settings(HOME_IP_ADDRESSES=('192.0.2.10',))
+    def test_home_ip_activity_is_excluded_by_default_and_can_be_included(self):
+        self.location_event('192.0.2.10')
+        self.location_event('198.51.100.10')
+        self.client.force_login(self.staff)
+
+        excluded = self.client.get(reverse('control_analytics'), self.params)
+        included = self.client.get(reverse('control_analytics'), {**self.params, 'include_home_ip': '1'})
+
+        self.assertEqual(excluded.context['event_page'].paginator.count, 1)
+        self.assertEqual(included.context['event_page'].paginator.count, 2)
+        self.assertEqual(excluded.context['unique_ips'], 1)
+        self.assertEqual(included.context['unique_ips'], 2)
+        self.assertEqual([event.ip_address for event in excluded.context['events']], ['198.51.100.10'])
+        self.assertContains(excluded, 'name="include_home_ip" value="1"')
+        self.assertNotContains(excluded, 'name="include_home_ip" value="1" checked')
+        self.assertContains(included, 'name="include_home_ip" value="1" checked')
+        for query_name in ['analytics_chart_query', 'analytics_pagination_query', 'analytics_clear_dates_query']:
+            self.assertEqual(parse_qs(included.context[query_name])['include_home_ip'], ['1'])
+
+    @override_settings(HOME_IP_ADDRESSES=('192.0.2.10',))
+    def test_home_ip_filter_applies_to_every_chart(self):
+        self.location_event('192.0.2.10')
+        self.location_event('198.51.100.10')
+        self.client.force_login(self.staff)
+
+        for endpoint in self.endpoints:
+            excluded = self.client.get(reverse(endpoint), self.params).json()
+            included = self.client.get(reverse(endpoint), {**self.params, 'include_home_ip': '1'}).json()
+            self.assertNotEqual(excluded, included, endpoint)
+
+        self.assertEqual(self.client.get(reverse('analytics_mix_chart'), self.params).json()['datasets'][0]['data'], [1, 0])
+        self.assertEqual(
+            self.client.get(reverse('analytics_mix_chart'), {**self.params, 'include_home_ip': '1'}).json()['datasets'][0]['data'],
+            [2, 0],
+        )
+
+    @override_settings(HOME_IP_ADDRESSES=('192.0.2.10',))
+    def test_purge_preserves_home_activity_unless_explicitly_included(self):
+        self.location_event('192.0.2.10')
+        self.location_event('198.51.100.10')
+        self.client.force_login(self.staff)
+
+        response = self.client.post(reverse('control_analytics'), {**self.params, 'action': 'purge'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(list(AnalyticsEvent.objects.values_list('ip_address', flat=True)), ['192.0.2.10'])
+        self.assertNotIn('include_home_ip', parse_qs(response.url.split('?', 1)[1]))
+
     def test_confirmed_purge_respects_global_activity_search(self):
         self.location_filter_data()
         self.client.force_login(self.staff)
