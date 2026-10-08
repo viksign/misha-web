@@ -1,4 +1,5 @@
 from pathlib import Path
+from ipaddress import ip_address
 import os
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -47,6 +48,22 @@ SECURITY_LOGIN_LIMIT = int(os.getenv('SECURITY_LOGIN_LIMIT', '12'))
 SECURITY_LOGIN_WINDOW_SECONDS = int(os.getenv('SECURITY_LOGIN_WINDOW_SECONDS', '600'))
 SECURITY_LOGIN_BLOCK_SECONDS = int(os.getenv('SECURITY_LOGIN_BLOCK_SECONDS', '1800'))
 SECURITY_EVENT_RETENTION_DAYS = int(os.getenv('SECURITY_EVENT_RETENTION_DAYS', '90'))
+
+
+def _ip_addresses_from_env(name):
+    addresses = []
+    for value in os.getenv(name, '').split(','):
+        value = value.strip()
+        if not value:
+            continue
+        try:
+            addresses.append(str(ip_address(value)))
+        except ValueError as exc:
+            raise ImproperlyConfigured(f'{name} must contain valid comma-separated IP addresses') from exc
+    return tuple(dict.fromkeys(addresses))
+
+
+HOME_IP_ADDRESSES = _ip_addresses_from_env('HOME_IP_ADDRESSES')
 STAFF_MFA_REQUIRED = os.getenv('STAFF_MFA_REQUIRED', 'True').lower() == 'true'
 TWO_FACTOR_PATCH_ADMIN = False
 TWO_FACTOR_TOTP_ISSUER = 'MISHA staff'

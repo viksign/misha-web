@@ -1107,6 +1107,9 @@ def _filter_analytics_events(params):
     end_dt = _parse_range_boundary(end_str, end_of_day=True)
 
     filtered_events = AnalyticsEvent.objects.all()
+    home_ip_addresses = getattr(settings, 'HOME_IP_ADDRESSES', ())
+    if home_ip_addresses and params.get('include_home_ip') != '1':
+        filtered_events = filtered_events.exclude(ip_address__in=home_ip_addresses)
     if start_dt:
         filtered_events = filtered_events.filter(created_at__gte=start_dt)
     if end_dt:
@@ -1166,7 +1169,7 @@ def control_analytics(request):
         purge_events, _, start_str, end_str = _filter_analytics_events(request.POST)
         deleted_count = purge_events.delete()[0]
         messages.success(request, f'{deleted_count} activity record(s) purged.')
-        query_params = {key: request.POST.get(key, '').strip() for key in ['user', 'country', 'city', 'q']}
+        query_params = {key: request.POST.get(key, '').strip() for key in ['user', 'country', 'city', 'q', 'include_home_ip']}
         query_params.update(start=start_str, end=end_str)
         query_params = {key: value for key, value in query_params.items() if value}
         redirect_url = reverse('control_analytics')
@@ -1190,8 +1193,15 @@ def control_analytics(request):
     country = request.GET.get('country', '').strip()
     city = request.GET.get('city', '').strip()
     query = request.GET.get('q', '').strip()
+    include_home_ip = request.GET.get('include_home_ip') == '1'
     location_params = {key: value for key, value in {'country': country, 'city': city, 'q': query}.items() if value}
-    chart_params = {'start': start_str, 'end': end_str, **({'user': filtered_user.pk} if filtered_user else {}), **location_params}
+    chart_params = {
+        'start': start_str,
+        'end': end_str,
+        **({'user': filtered_user.pk} if filtered_user else {}),
+        **location_params,
+        **({'include_home_ip': '1'} if include_home_ip else {}),
+    }
     clear_dates_params = {key: value for key, value in chart_params.items() if key not in {'start', 'end'}}
     clear_locations_params = {key: value for key, value in chart_params.items() if key not in {'country', 'city'}}
     return render(request, 'shop/control_analytics.html', {
@@ -1209,6 +1219,8 @@ def control_analytics(request):
         'page_size_options': ANALYTICS_PAGE_SIZES,
         'country_filter': country, 'city_filter': city,
         'activity_query': query,
+        'include_home_ip': include_home_ip,
+        'home_ip_configured': bool(getattr(settings, 'HOME_IP_ADDRESSES', ())),
         'analytics_clear_search_query': urlencode({**{key: value for key, value in chart_params.items() if key != 'q'}, 'page_size': page_size}),
         'country_options': IPGeolocation.objects.filter(is_private=False).exclude(country='').order_by('country').values_list('country', flat=True).distinct(),
         'city_options': IPGeolocation.objects.filter(is_private=False).exclude(city='').order_by('city').values_list('city', flat=True).distinct(),

@@ -15,6 +15,10 @@ certificates from persistent Docker volumes.
    `CERTBOT_EMAIL`, Stripe keys, and SMTP credentials.
 5. Replace the example MySQL user and root passwords with unique, strong values;
    Compose refuses to start the database if either password is missing.
+6. Set `HOME_IP_ADDRESSES` in `.env` to the public IP address to exclude from
+   Control Panel analytics by default. Separate multiple IPv4 or IPv6 addresses
+   with commas. Staff can temporarily include that activity from the analytics
+   filter.
 
 ## Email delivery
 

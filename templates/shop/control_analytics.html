@@ -19,6 +19,7 @@
 		<label for="analytics-city">City</label>
 		<input id="analytics-city" name="city" value="{{ city_filter }}" list="analytics-cities" placeholder="City name">
 		<datalist id="analytics-cities">{% for city in city_options %}<option value="{{ city }}">{% endfor %}</datalist>
+		<label class="analytics-home-ip-filter"><input type="checkbox" name="include_home_ip" value="1"{% if include_home_ip %} checked{% endif %}{% if not home_ip_configured %} disabled{% endif %}> Include home IP activity</label>
 		<input type="hidden" name="page_size" value="{{ page_size }}">
 		<button class="button" type="submit">Apply filters</button>
 		{% if start_date or end_date %}<a class="button outline" href="?{{ analytics_clear_dates_query }}">Clear dates</a>{% endif %}
@@ -84,6 +85,7 @@
 				{% if country_filter %}<input type="hidden" name="country" value="{{ country_filter }}">{% endif %}
 				{% if city_filter %}<input type="hidden" name="city" value="{{ city_filter }}">{% endif %}
 				{% if activity_query %}<input type="hidden" name="q" value="{{ activity_query }}">{% endif %}
+				{% if include_home_ip %}<input type="hidden" name="include_home_ip" value="1">{% endif %}
 				<label for="analytics-page-size" style="font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--island-green);">Rows per page</label>
 				<select id="analytics-page-size" name="page_size" onchange="this.form.submit()">
 					{% for size in page_size_options %}<option value="{{ size }}"{% if size == page_size %} selected{% endif %}>{{ size }}</option>{% endfor %}
@@ -98,6 +100,7 @@
 				{% if country_filter %}<input type="hidden" name="country" value="{{ country_filter }}">{% endif %}
 				{% if city_filter %}<input type="hidden" name="city" value="{{ city_filter }}">{% endif %}
 				{% if activity_query %}<input type="hidden" name="q" value="{{ activity_query }}">{% endif %}
+				{% if include_home_ip %}<input type="hidden" name="include_home_ip" value="1">{% endif %}
 				<button class="button outline" type="submit">Purge logs</button>
 			</form>
 		</div>
@@ -108,6 +111,7 @@
 			<input type="hidden" name="country" value="{{ country_filter }}">
 			<input type="hidden" name="city" value="{{ city_filter }}">
 			<input type="hidden" name="page_size" value="{{ page_size }}">
+			{% if include_home_ip %}<input type="hidden" name="include_home_ip" value="1">{% endif %}
 			<label for="analytics-filter">Search all activity records</label>
 			<input id="analytics-filter" type="search" name="q" value="{{ activity_query }}" placeholder="Search location, city, IP, type, product, path or customer">
 			<button class="button" type="submit">Search</button>
