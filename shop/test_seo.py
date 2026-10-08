@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 from PIL import Image
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -47,6 +48,21 @@ class SeoTests(TestCase):
     def setUp(self):
         self.collection = Collection.objects.create(name='Island collection', slug='island-seo', description='Actual collection description.')
         self.product = Product.objects.create(name='Real pendant', slug='real-seo-pendant', sku='SEO-001', description='Actual stainless steel pendant.', price='29.99', stock_quantity=5, collection=self.collection)
+
+    def test_favicon_serves_uploaded_icon_and_pages_reference_it(self):
+        expected = (settings.BASE_DIR / 'static/images/favourite.ico').read_bytes()
+        response = self.client.get('/favicon.ico')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'image/x-icon')
+        self.assertEqual(b''.join(response.streaming_content), expected)
+        response.close()
+        for path in ['/', '/login/', '/staff-auth/login/', '/not-a-real-page/']:
+            with self.subTest(path=path):
+                self.assertContains(
+                    self.client.get(path),
+                    '<link rel="icon" type="image/x-icon" href="/static/images/favourite.ico?v=20261008">',
+                    status_code=404 if path == '/not-a-real-page/' else 200,
+                )
 
     @override_settings(ALLOWED_HOSTS=['mishaislandheritage.com', 'www.mishaislandheritage.com'])
     def test_google_verification_is_public_at_exact_root_path(self):
