@@ -1,0 +1,10 @@
+<div class="product-option-row" data-option-row>
+  {% for hidden in option_form.hidden_fields %}{{ hidden }}{% endfor %}
+  <label class="product-option-cell"><span class="product-option-cell-label">Option type</span>{{ option_form.kind }}{{ option_form.kind.errors }}</label>
+  <label class="product-option-cell"><span class="product-option-cell-label">Option</span>{{ option_form.label }}{{ option_form.label.errors }}</label>
+  <label class="product-option-cell"><span class="product-option-cell-label">Guidance</span>{{ option_form.description }}{{ option_form.description.errors }}</label>
+  <label class="product-option-cell"><span class="product-option-cell-label">Extra price (£)</span>{{ option_form.additional_cost }}{{ option_form.additional_cost.errors }}</label>
+  <label class="product-option-cell product-option-check"><span class="product-option-cell-label">Default</span>{{ option_form.is_default }}{{ option_form.is_default.errors }}</label>
+  <label class="product-option-cell product-option-check"><span class="product-option-cell-label">Remove</span>{{ option_form.DELETE }}</label>
+  {% if option_form.non_field_errors %}<div class="product-option-row-errors">{{ option_form.non_field_errors }}</div>{% endif %}
+</div>

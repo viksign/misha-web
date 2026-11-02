@@ -10,3 +10,5 @@ redis>=5.0,<6.0
 gunicorn>=23.0,<24.0
 whitenoise
 django-two-factor-auth[phonenumberslite]>=1.18,<2.0
+phonenumberslite>=8.13,<10.0
+pycountry>=24.6,<27.0

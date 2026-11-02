@@ -23,21 +23,28 @@ class ActivityMixChartView(AnalyticsChartView):
 
 class ConnectionsLocationChartView(AnalyticsChartView):
     def build_chart(self):
-        rows = list(self.events.filter(event_type='page_view').values('ip_address').annotate(total=Count('pk')).order_by('ip_address'))
+        rows = list(self.events.filter(event_type='page_view').values(
+            'ip_address', 'city', 'region', 'country',
+        ).annotate(total=Count('pk')).order_by('ip_address', 'city', 'region', 'country'))
         locations = {
             record.ip_address: record.label
             for record in IPGeolocation.objects.filter(ip_address__in=[row['ip_address'] for row in rows if row['ip_address']])
         }
         grouped = {}
         for row in rows:
-            location = locations.get(row['ip_address'], 'Unknown')
-            counts = grouped.setdefault(location, {'connections': 0, 'unique_ips': 0})
+            direct_location = ', '.join(part for part in (row['city'], row['region'], row['country']) if part)
+            location = (
+                direct_location if row['city'] or row['region']
+                else locations.get(row['ip_address'], direct_location or 'Unknown')
+            )
+            counts = grouped.setdefault(location, {'connections': 0, 'unique_ips': set()})
             counts['connections'] += row['total']
-            counts['unique_ips'] += bool(row['ip_address'])
+            if row['ip_address']:
+                counts['unique_ips'].add(row['ip_address'])
         groups = sorted(grouped.items(), key=lambda item: (-item[1]['connections'], item[0]))
         palette = ['#286b56', '#367c96', '#bf9547', '#b75353', '#557b88', '#a96983', '#64864a', '#a56e43']
         return {
-            'labels': [f'{location} · {counts["unique_ips"]} unique IP address{"es" if counts["unique_ips"] != 1 else ""}' for location, counts in groups],
+            'labels': [f'{location} · {len(counts["unique_ips"])} unique IP address{"es" if len(counts["unique_ips"]) != 1 else ""}' for location, counts in groups],
             'data': [[counts['connections'] for location, counts in groups]],
             'providers': ['Connections (page views)'],
             'colors': [[palette[index % len(palette)] for index in range(len(groups))]],

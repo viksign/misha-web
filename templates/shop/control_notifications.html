@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Notifications | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / NOTIFICATIONS</p><h1>Order reminders</h1><p>Remind staff when an order stays in a status longer than the configured number of hours.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section management-layout">
+  <div class="management-form">
+    <h2>{% if editing %}Edit reminder{% else %}Add reminder{% endif %}</h2>
+    <p>All orders are eligible, including unpaid orders. One reminder is sent per order status, even if the order later returns to that status. The scheduled check runs every five minutes. Customers are not notified and order statuses are not changed.</p>
+    <form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Save reminder</button>{% if editing %}<a class="button outline" href="{% url 'control_notifications' %}">Cancel</a>{% endif %}</form>
+    <p>Only active staff with an email address can be selected. Distribution-list addresses are entered one per line. Recipients receive the email privately using BCC.</p>
+  </div>
+  <div class="management-list">
+    <h2>Configured reminders</h2>
+    {% for rule in rules %}
+    <div class="management-row"><div><strong>{{ rule.get_status_display }} after {{ rule.after_hours }} hours</strong><span>{% if rule.enabled %}Enabled{% else %}Disabled{% endif %}</span><span>{% for user in rule.staff.all %}{{ user.email }}{% if not forloop.last %}, {% endif %}{% endfor %}</span><span>{{ rule.distribution_emails|linebreaksbr }}</span></div><a href="?edit={{ rule.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="rule_id" value="{{ rule.pk }}"><button type="submit" onclick="return confirm('Remove this reminder rule?')">Remove</button></form></div>
+    {% empty %}<p>No reminders configured. No reminder emails will be sent until an administrator enables a rule.</p>{% endfor %}
+  </div>
+</section>
+<section class="section"><h2>Recent reminders sent</h2><div class="product-table-wrap"><table class="product-table"><thead><tr><th>Order</th><th>Status</th><th>Sent</th><th>Recipients</th></tr></thead><tbody>{% for delivery in deliveries %}<tr><td><a href="{% url 'control_orders' %}?edit={{ delivery.order_id }}">#{{ delivery.order.order_reference|default:delivery.order_id }}</a></td><td>{{ delivery.get_status_display }}</td><td>{{ delivery.sent_at }}</td><td>{{ delivery.recipients|linebreaksbr }}</td></tr>{% empty %}<tr><td colspan="4">No reminders sent yet.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

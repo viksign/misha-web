@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Categories &amp; tags | Control Panel{% endblock %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / CATALOGUE</p><h1>Categories &amp; tags</h1><p>Every product has one category and can have several tags. Assign them on the Products page.</p></section>
+{% include 'shop/_control_nav.html' %}
+<section class="section management-layout">
+  <div class="management-form">
+    <h2>{% if editing_category %}Edit category{% else %}Add category{% endif %}</h2>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_category">{{ category_form.as_p }}<button class="button" type="submit">Save category</button>{% if editing_category %}<a class="button outline" href="{% url 'control_product_taxonomy' %}">Cancel</a>{% endif %}</form>
+  </div>
+  <div class="management-list">
+    <h2>Categories</h2>
+    {% for category in categories %}
+    <div class="management-row"><div><strong>{{ category.name }}</strong><span>{{ category.product_count }} product{{ category.product_count|pluralize }}</span></div><a href="?edit_category={{ category.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_category"><input type="hidden" name="category_id" value="{{ category.pk }}"><button type="submit" onclick="return confirm('Remove this category? Assigned categories cannot be removed.')">Remove</button></form></div>
+    {% empty %}<p>No categories yet.</p>{% endfor %}
+  </div>
+</section>
+<section class="section management-layout">
+  <div class="management-form">
+    <h2>{% if editing_tag %}Edit tag{% else %}Add tag{% endif %}</h2>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_tag">{{ tag_form.as_p }}<button class="button" type="submit">Save tag</button>{% if editing_tag %}<a class="button outline" href="{% url 'control_product_taxonomy' %}">Cancel</a>{% endif %}</form>
+  </div>
+  <div class="management-list">
+    <h2>Tags</h2>
+    {% for tag in tags %}
+    <div class="management-row"><div><strong>{{ tag.name }}</strong><span>{{ tag.product_count }} product{{ tag.product_count|pluralize }}</span></div><a href="?edit_tag={{ tag.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_tag"><input type="hidden" name="tag_id" value="{{ tag.pk }}"><button type="submit" onclick="return confirm('Remove this tag from all products?')">Remove</button></form></div>
+    {% empty %}<p>No tags yet.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

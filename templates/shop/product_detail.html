@@ -35,12 +35,31 @@
   <div class="product-copy">
     <p class="eyebrow">{{ product.collection.name|default:'MISHA COLLECTION' }}</p>
     <h1>{{ product.name }}</h1>
-    <div class="price">£{{ product.price }}</div>
+    <div class="price" data-product-price data-base-price="{{ product.price }}" aria-live="polite">£{{ product.price }}</div>
     {% if product.in_stock %}
       <form class="product-purchase-form" method="post" action="{% url 'add_to_cart' product.pk %}">
         {% csrf_token %}
-        <label>Quantity <input type="number" name="quantity" value="1" min="1" max="{{ product.stock_quantity }}"></label>
-        <button class="button" type="submit">Add to bag</button>
+        <p class="product-purchase-guidance">Choose your quantity first, then select the available length or size.</p>
+        <label class="product-quantity-field"><span>Quantity</span><input type="number" name="quantity" value="1" min="1" max="{{ product.stock_quantity }}" inputmode="numeric"></label>
+        {% if option_groups %}
+        <div class="product-option-fields">
+        {% for group in option_groups %}
+          <label class="product-option-field"><span>{{ group.kind }}</span>
+            <select name="options" required data-product-option>
+              {% if not group.has_default %}<option value="">Choose {{ group.kind|lower }}</option>{% endif %}
+              {% for option in group.options %}<option value="{{ option.pk }}" data-additional-cost="{{ option.additional_cost }}" data-option-description="{{ option.description|escape }}" data-option-kind="{{ group.kind }}"{% if option.is_default %} selected{% endif %}>{{ option.label }}{% if option.additional_cost %} — +£{{ option.additional_cost }}{% elif option.kind_key != 'chain length' and option.kind_key != 'size' %} — Included{% endif %}</option>{% endfor %}
+            </select>
+          </label>
+        {% endfor %}
+        </div>
+        <div class="product-option-guidance" data-option-guidance hidden>
+          <p class="product-option-guidance-label" data-option-guidance-label></p>
+          <p class="product-option-guidance-copy" data-option-guidance-copy></p>
+        </div>
+        <p class="product-price-breakdown" data-price-breakdown hidden></p>
+        {% endif %}
+        <button class="button product-add-button" type="submit">Add to bag</button>
+        {% if option_groups %}<p class="product-option-note"><noscript>Your final price, including any extra option costs, is shown when you add this piece to your bag.</noscript></p>{% endif %}
       </form>
     {% else %}
       <div class="soldout" id="stock-notification">
@@ -62,45 +81,53 @@
         {% endif %}
       </div>
     {% endif %}
-    <div class="product-service-summary" aria-label="Delivery information">
-      <div><strong>Delivery options</strong><span>Rates and available services are shown at checkout.</span></div>
-      <div><strong>Order tracking</strong><span>Tracking details are sent after dispatch.</span></div>
-    </div>
-    <section class="product-overview" aria-labelledby="product-overview-title">
-      <h2 id="product-overview-title">Product Overview</h2>
-      <p>{{ product.description }}</p>
-    </section>
     <div class="product-accordions">
+      <details class="product-accordion product-overview">
+        <summary><h2>Product Overview</h2></summary>
+        <div class="product-accordion-content">
+          <p>{{ product.description|linebreaksbr }}</p>
+        </div>
+      </details>
       <details class="product-accordion">
         <summary>Product Details</summary>
         <div class="product-accordion-content">
           <dl>
             <dt>Material</dt><dd>{{ product.material|default:'Gold plated' }}</dd>
             <dt>SKU</dt><dd>{{ product.sku }}</dd>
-            {% if product.size %}<dt>Size</dt><dd>{{ product.size }}</dd>{% endif %}
-            {% if product.length %}<dt>Length</dt><dd>{{ product.length }}</dd>{% endif %}
+            {% for group in option_groups %}<dt>{{ group.kind }}</dt><dd>{% for option in group.options %}{{ option.label }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endfor %}
+            {% if product.chain_style %}<dt>Chain Style</dt><dd>{{ product.chain_style }}</dd>{% endif %}
+            {% if product.colour %}<dt>Colour</dt><dd>{{ product.colour }}</dd>{% endif %}
             {% if product.weight %}<dt>Weight</dt><dd>{{ product.weight }}</dd>{% endif %}
-            {% if product.dimensions %}<dt>Dimensions</dt><dd>{{ product.dimensions }}</dd>{% endif %}
+            {% if product.dimensions %}<dt>Pendant Dimensions</dt><dd>{{ product.dimensions }}</dd>{% endif %}
           </dl>
           {% if product.technical_details %}<h3>Specifications</h3><p>{{ product.technical_details|linebreaksbr }}</p>{% endif %}
         </div>
       </details>
       <details class="product-accordion">
-        <summary>Shipment and Delivery</summary>
+        <summary>Shipping &amp; Delivery</summary>
         <div class="product-accordion-content">
-          <h3>Order Processing</h3>
-          <p>All orders are carefully prepared and dispatched within <strong>1–3 business days</strong>. Please note that weekends and public holidays are not included in the processing timeframe.</p>
-          <h3>Shipping Options</h3>
-          <ul class="product-shipping-options">
-            <li><strong>UK Standard Delivery:</strong> 3–5 business days — <strong>£3.99</strong></li>
-            <li><strong>USA Standard Delivery (Royal Mail):</strong> 7–15 business days — <strong>£11.99</strong></li>
-            <li><strong>Europe Standard Delivery (Royal Mail):</strong> 7–15 business days — <strong>£9.99</strong></li>
-            <li><strong>Canada &amp; International Standard Delivery (Royal Mail):</strong> 10–25 business days — <strong>£11.99</strong></li>
+          <h3>Order processing</h3>
+          <p>Orders are usually processed within <strong>1&ndash;3 business days</strong>. Processing times do not include weekends or public holidays.</p>
+          <h3>Shipping options</h3>
+          <ul class="product-shipping-methods">
+            {% for method in shipping_methods %}
+              <li><span>{{ method.label }}{% if method.transit %} ({{ method.transit }}){% endif %}</span><strong>£{{ method.price }}</strong></li>
+            {% endfor %}
           </ul>
           <h3>Tracking</h3>
-          <p>Once your order has been dispatched, you’ll receive an email containing your tracking information so you can follow its journey.</p>
-          <h3>International Delivery</h3>
-          <p>For orders shipped outside the UK, delivery times can vary depending on the destination. Customs processing, local postal services, and other factors may occasionally cause additional delays.</p>
+          <p>A tracking number will be emailed to you once your order ships.</p>
+          <h3>International orders</h3>
+          <p>Delivery times may vary depending on location and customs clearance. Any import duties or taxes are the responsibility of the recipient.</p>
+        </div>
+      </details>
+      <details class="product-accordion">
+        <summary>Returns &amp; Refunds</summary>
+        <div class="product-accordion-content">
+          <p>You may request a return within <strong>14 days of delivery</strong>. Items must be intact, unused, unworn and unopened, with their original packaging.</p>
+          <p>For hygiene reasons, <strong>earrings cannot be returned once their sealed packaging has been opened</strong>, unless they are faulty. Personalised or made-to-order pieces cannot be returned unless faulty.</p>
+          <p>Approved refunds are made to the original payment method within 14 days of us receiving the item back or receiving evidence that it has been returned.</p>
+          <p>To start a return, contact us at <a href="mailto:customercare@mishaislandheritage.com">customercare@mishaislandheritage.com</a>.</p>
+          <p><a href="{% url 'terms_and_conditions' %}#returns-and-refunds">Read our full Terms &amp; Conditions</a>.</p>
         </div>
       </details>
     </div>

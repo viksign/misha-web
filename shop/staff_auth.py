@@ -47,6 +47,8 @@ class StaffMFAMiddleware:
     def __call__(self, request):
         path = request.path
         protected = any(path == prefix.rstrip('/') or path.startswith(prefix) for prefix in ['/admin/', '/controlpanel/'])
+        if path == reverse('order_tracking') and 'token' not in request.GET and request.user.is_authenticated and request.user.is_staff:
+            protected = True
         security_page = path.startswith('/staff-auth/') and path != reverse('two_factor:login')
         if not settings.STAFF_MFA_REQUIRED or not (protected or security_page):
             return self.get_response(request)

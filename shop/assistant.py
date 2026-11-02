@@ -37,7 +37,7 @@ def gemini_chat_reply(message):
     if not settings.GEMINI_API_KEY:
         return None
 
-    products = Product.objects.filter(active=True).order_by('-featured', 'name')[:20]
+    products = Product.objects.filter(active=True).prefetch_related('options').order_by('-featured', 'name')[:20]
     product_facts = []
     for product in products:
         facts = [
@@ -47,14 +47,16 @@ def gemini_chat_reply(message):
         for label, value in (
             ('description', product.short_description or product.description),
             ('material', product.material),
-            ('size', product.size),
-            ('length', product.length),
-            ('dimensions', product.dimensions),
+            ('chain style', product.chain_style),
+            ('colour', product.colour),
+            ('pendant dimensions', product.dimensions),
             ('weight', product.weight),
             ('technical details', product.technical_details),
         ):
             if value:
                 facts.append(f'{label}: {value[:300]}')
+        for option in product.options.all():
+            facts.append(f'{option.kind}: {option.label} (+£{option.additional_cost:.2f})')
         product_facts.append('; '.join(facts))
 
     delivery_facts = [
@@ -65,7 +67,14 @@ def gemini_chat_reply(message):
     reference = '\n'.join([
         'PRODUCTS:', *(product_facts or ['No active product data is available.']),
         'DELIVERY OPTIONS:', *(delivery_facts or ['No active delivery data is available.']),
-        'No approved returns policy, delivery-time estimate, or FAQ content is configured.',
+        'RETURNS AND REFUNDS:',
+        'Customers may request a return within 14 days of delivery.',
+        'Returned items must be intact, unused, unworn and unopened, with their original packaging.',
+        'For hygiene reasons, earrings cannot be returned once their sealed packaging has been opened, unless faulty.',
+        'Personalised or made-to-order pieces cannot be returned unless faulty.',
+        'Approved refunds are made to the original payment method within 14 days after the item is received back or evidence of return is provided.',
+        'Customers must contact customercare@mishaislandheritage.com to start a return.',
+        'No approved delivery-time estimate or FAQ content is configured.',
     ])
     system_instruction = (
         'You are the friendly, efficient support assistant for Misha Island Heritage, a jewellery shop. '

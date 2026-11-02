@@ -6,14 +6,18 @@ from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
+from django.template.loader import render_to_string
 
 from .forms import OrderManagementForm
 from .models import DeliveryOption, Order, OrderItem, Product
 from .services import mark_stripe_order_paid
+from .order_tracking import royalmail_tracking_url
 
 
 @override_settings(
@@ -118,6 +122,174 @@ class OrderFulfilmentTests(TestCase):
         self.assertContains(response, '<th>Processing by</th>', html=False)
         self.assertContains(response, 'Asha Patel')
         self.assertContains(response, 'Fulfilment timeline')
+
+    def test_order_modal_has_copyable_shipment_fields_and_progress(self):
+        staff = User.objects.create_user(username='shipment-manager', is_staff=True)
+        self.client.force_login(staff)
+        order = self.create_order(
+            status='processing', payment_status='paid', phone='+447123456789',
+            shipping_address2='Flat 2', billing_name='Billing Customer',
+            billing_address1='3 Billing Street', billing_city='Oxford',
+            billing_postcode='OX1 1AA', billing_country='United Kingdom',
+        )
+        response = self.client.get(reverse('control_orders'), {'edit': order.pk})
+        self.assertContains(response, 'aria-label="Current order progress"')
+        self.assertContains(response, 'aria-current="step"')
+        self.assertContains(response, 'aria-label="Copy customer email"')
+        self.assertContains(response, 'aria-label="Copy phone"')
+        self.assertContains(response, f'value="{order.phone}"')
+        self.assertContains(response, 'Copy full delivery address')
+        self.assertContains(response, 'Copy full billing address')
+        rendered_order = response.context['orders'][0]
+        self.assertEqual(rendered_order.copy_addresses[0]['full_address'],
+                         'Customer\n1 Test Street\nFlat 2\nLondon\nN1 1AA\nUnited Kingdom')
+        self.assertEqual(rendered_order.copy_addresses[1]['full_address'],
+                         'Billing Customer\n3 Billing Street\nOxford\nOX1 1AA\nUnited Kingdom')
+        self.assertEqual(rendered_order.tracking_view['steps'][1]['state'], 'current')
+        content = response.content.decode()
+        self.assertLess(content.index('data-order-management-form'), content.index('class="shipment-copy-details"'))
+        self.assertLess(content.index('data-order-save'), content.index('Assignment, payment and order adjustments'))
+        self.assertContains(response, 'Adding a tracking number alone does not change the status.')
+
+    def test_single_and_bulk_shipping_send_missing_dispatch_email_once(self):
+        staff = User.objects.create_user(username='dispatch-staff', is_staff=True)
+        self.client.force_login(staff)
+        for action in ['single', 'bulk']:
+            with self.subTest(action=action):
+                order = self.create_order(payment_status='paid', tracking_number='AB123456789GB')
+                data = (
+                    self.management_data(order, status='shipped', tracking_number=order.tracking_number)
+                    if action == 'single' else
+                    {'action': 'batch_update', 'batch_status': 'shipped', 'order_ids': [order.pk]}
+                )
+                before = len(mail.outbox)
+                for _ in range(2):
+                    self.client.post(reverse('control_orders'), data)
+                order.refresh_from_db()
+                self.assertEqual(order.status, 'shipped')
+                self.assertIsNotNone(order.tracking_email_sent_at)
+                self.assertEqual(len(mail.outbox), before + 1)
+                self.assertEqual(mail.outbox[-1].to, [order.email])
+
+    @patch('shop.views.send_tracking_email')
+    def test_bulk_shipping_with_missing_tracking_updates_nothing(self, send):
+        staff = User.objects.create_user(username='bulk-validation-staff', is_staff=True)
+        self.client.force_login(staff)
+        ready = self.create_order(status='processing', payment_status='paid', tracking_number='AB123456789GB')
+        missing = self.create_order(status='processing', payment_status='paid')
+        response = self.client.post(reverse('control_orders'), {
+            'action': 'batch_update', 'batch_status': 'shipped', 'order_ids': [ready.pk, missing.pk],
+        })
+        ready.refresh_from_db()
+        missing.refresh_from_db()
+        self.assertEqual(ready.status, 'processing')
+        self.assertEqual(missing.status, 'processing')
+        send.assert_not_called()
+        self.assertTrue(any('No orders updated' in str(message) for message in get_messages(response.wsgi_request)))
+
+    @patch('shop.services.EmailMultiAlternatives.send', return_value=0)
+    def test_unaccepted_dispatch_email_does_not_record_sent_timestamp(self, send):
+        staff = User.objects.create_user(username='dispatch-backend-staff', is_staff=True)
+        self.client.force_login(staff)
+        order = self.create_order(payment_status='paid', tracking_number='AB123456789GB')
+        with self.assertLogs('shop.views', level='ERROR'):
+            self.client.post(reverse('control_orders'), self.management_data(
+                order, status='shipped', tracking_number=order.tracking_number,
+            ))
+        order.refresh_from_db()
+        self.assertEqual(order.status, 'shipped')
+        self.assertIsNone(order.tracking_email_sent_at)
+        send.assert_called_once_with(fail_silently=False)
+
+    @patch('shop.views.send_tracking_email')
+    def test_dispatch_failure_is_reported_and_retryable_for_single_and_bulk_updates(self, send):
+        staff = User.objects.create_user(username='dispatch-retry-staff', is_staff=True)
+        self.client.force_login(staff)
+        for action in ['single', 'bulk']:
+            with self.subTest(action=action):
+                order = self.create_order(payment_status='paid', tracking_number='AB123456789GB')
+                data = (
+                    self.management_data(order, status='shipped', tracking_number=order.tracking_number)
+                    if action == 'single' else
+                    {'action': 'batch_update', 'batch_status': 'shipped', 'order_ids': [order.pk]}
+                )
+                send.return_value = False
+                with self.assertLogs('shop.views', level='ERROR'):
+                    response = self.client.post(reverse('control_orders'), data)
+                order.refresh_from_db()
+                self.assertEqual(order.status, 'shipped')
+                self.assertIsNone(order.tracking_email_sent_at)
+                self.assertTrue(any('dispatch email could not be sent' in str(message) for message in get_messages(response.wsgi_request)))
+                send.return_value = True
+                self.client.post(reverse('control_orders'), data)
+                order.refresh_from_db()
+                self.assertIsNotNone(order.tracking_email_sent_at)
+
+    def test_tracking_url_is_prefilled_and_saved_without_javascript(self):
+        order = self.create_order(payment_status='paid', tracking_number='AB123456789GB')
+        form = OrderManagementForm(instance=order)
+        self.assertEqual(form['tracking_url'].value(), royalmail_tracking_url(order.tracking_number))
+        form = OrderManagementForm(self.management_data(order, tracking_number=' CD123456789GB '), instance=order)
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.tracking_number, 'CD123456789GB')
+        self.assertEqual(saved.tracking_url, royalmail_tracking_url('CD123456789GB'))
+
+    def test_dispatch_progress_link_is_a_button_with_plain_text_url(self):
+        order = self.create_order(status='shipped', payment_status='paid', tracking_number='AB123456789GB')
+        url = 'https://www.mishaislandheritage.com/order-tracking/?token=test-token'
+        order.tracking_url = royalmail_tracking_url(order.tracking_number)
+        context = {'order': order, 'tracking_page_url': url}
+        html = render_to_string('shop/tracking_email.html', context)
+        text = render_to_string('shop/tracking_email.txt', context)
+        self.assertIn(
+            f'<a href="{url}" style="display:block;padding:18px 24px;background:#183b3a;color:#ffffff;text-decoration:none;font-size:18px;line-height:1.5;font-weight:bold;">View your order progress</a>',
+            html,
+        )
+        self.assertIn(f'View your order progress - click or open this link:\n{url}', text)
+        self.assertNotIn('Track your order', html)
+        self.assertNotIn(order.tracking_url, html)
+        self.assertNotIn(order.tracking_url, text)
+
+    def test_tracking_number_changes_update_generated_url_but_preserve_custom_url(self):
+        for submitted_url, expected in [
+            (royalmail_tracking_url('AB123456789GB'), royalmail_tracking_url('CD123456789GB')),
+            ('https://carrier.example.com/parcel/123', 'https://carrier.example.com/parcel/123'),
+        ]:
+            with self.subTest(url=submitted_url):
+                order = self.create_order(payment_status='paid', tracking_number='AB123456789GB', tracking_url=submitted_url)
+                form = OrderManagementForm(self.management_data(
+                    order, tracking_number='CD123456789GB', tracking_url=submitted_url,
+                ), instance=order)
+                self.assertTrue(form.is_valid(), form.errors)
+                self.assertEqual(form.save().tracking_url, expected)
+
+    def test_removing_tracking_number_clears_generated_url_and_invalid_url_is_rejected(self):
+        order = self.create_order(payment_status='paid', tracking_number='AB123456789GB')
+        form = OrderManagementForm(self.management_data(
+            order, tracking_number='', tracking_url=royalmail_tracking_url(order.tracking_number),
+        ), instance=order)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['tracking_url'], '')
+        form = OrderManagementForm(self.management_data(
+            order, tracking_number='CD123456789GB', tracking_url='invalid-url',
+        ), instance=order)
+        self.assertFalse(form.is_valid())
+        self.assertIn('tracking_url', form.errors)
+
+    def test_order_modal_does_not_show_active_progress_for_unpaid_cancelled_or_returned_orders(self):
+        staff = User.objects.create_user(username='shipment-reviewer', is_staff=True)
+        self.client.force_login(staff)
+        for status, payment_status in [('pending', 'pending'), ('cancelled', 'paid'), ('return', 'refunded')]:
+            with self.subTest(status=status):
+                order = self.create_order(status=status, payment_status=payment_status)
+                response = self.client.get(reverse('control_orders'), {'edit': order.pk})
+                self.assertNotContains(response, 'class="order-progress-steps"')
+                self.assertContains(response, order.get_status_display())
+                self.assertContains(response, order.get_payment_status_display())
+                self.assertNotContains(response, 'aria-label="Copy phone"')
+                if payment_status == 'pending':
+                    self.assertContains(response, 'Do not fulfil this checkout attempt.')
 
     def test_manual_assignment_and_batch_updates_preserve_existing_processor(self):
         staff = User.objects.create_user(username='manager', is_staff=True)
@@ -289,6 +461,32 @@ class OrderFulfilmentTests(TestCase):
         self.assertEqual(response.context['selected_statuses'], ['pending'])
         self.assertEqual([order.pk for order in response.context['orders']], [pending.pk])
 
+    def test_payment_confirmation_filter_distinguishes_checkout_attempts(self):
+        staff = User.objects.create_user(username='payment-filter-staff', is_staff=True)
+        self.client.force_login(staff)
+        unpaid = self.create_order(order_reference='111111')
+        paid = self.create_order(order_reference='222222', payment_status='paid')
+        refunded = self.create_order(payment_status='refunded')
+        manual = self.create_order(payment_channel='cash')
+        response = self.client.get(reverse('control_orders'))
+        self.assertEqual({order.pk for order in response.context['orders']}, {unpaid.pk, paid.pk, refunded.pk, manual.pk})
+        self.assertContains(response, 'Unpaid checkout attempt')
+        self.assertContains(response, 'Not confirmed - do not fulfil')
+        response = self.client.get(reverse('control_orders'), {'payment_scope': 'paid'})
+        self.assertEqual({order.pk for order in response.context['orders']}, {paid.pk, refunded.pk})
+        response = self.client.get(reverse('control_orders'), {'payment_scope': 'unpaid'})
+        self.assertEqual([order.pk for order in response.context['orders']], [unpaid.pk])
+        self.assertEqual(parse_qs(response.context['pagination_query'])['payment_scope'], ['unpaid'])
+
+    def test_batch_update_preserves_payment_confirmation_filter(self):
+        staff = User.objects.create_user(username='payment-batch-staff', is_staff=True)
+        self.client.force_login(staff)
+        order = self.create_order(payment_status='paid')
+        response = self.client.post(reverse('control_orders') + '?payment_scope=paid', {
+            'action': 'batch_update', 'batch_status': 'processing', 'order_ids': [order.pk],
+        })
+        self.assertEqual(parse_qs(urlparse(response['Location']).query)['payment_scope'], ['paid'])
+
     def test_batch_update_keeps_status_search_and_sort_filters(self):
         staff = User.objects.create_user(username='filtered-batch-staff', is_staff=True)
         self.client.force_login(staff)
@@ -307,17 +505,18 @@ class OrderFulfilmentTests(TestCase):
     def test_order_pages_are_limited_to_50_and_preserve_filters(self):
         staff = User.objects.create_user(username='pagination-staff', is_staff=True)
         self.client.force_login(staff)
-        orders = Order.objects.bulk_create([
+        Order.objects.bulk_create([
             Order(email='customer@example.com', shipping_name='Customer', shipping_address1='1 Test Street', shipping_city='London', shipping_postcode='N1 1AA')
             for index in range(51)
         ])
+        order_ids = list(Order.objects.filter(email='customer@example.com', status='pending').order_by('created_at', 'pk').values_list('pk', flat=True))
         self.create_order(status='completed')
         params = {'status': ['pending'], 'sort': 'oldest', 'q': 'customer@example.com'}
         first = self.client.get(reverse('control_orders'), params)
         self.assertEqual(len(first.context['orders']), 50)
         self.assertEqual(first.context['order_page'].paginator.count, 51)
         self.assertEqual(first.context['order_page'].paginator.num_pages, 2)
-        self.assertEqual(first.context['orders'][0].pk, orders[0].pk)
+        self.assertEqual(first.context['orders'][0].pk, order_ids[0])
         filters = parse_qs(first.context['pagination_query'])
         self.assertEqual(filters['status'], ['pending'])
         self.assertEqual(filters['sort'], ['oldest'])
@@ -325,10 +524,10 @@ class OrderFulfilmentTests(TestCase):
         self.assertEqual(filters['start'], [first.context['start_date']])
         self.assertEqual(filters['end'], [first.context['end_date']])
         second = self.client.get(reverse('control_orders'), {**params, 'page': 2})
-        self.assertEqual([order.pk for order in second.context['orders']], [orders[-1].pk])
+        self.assertEqual([order.pk for order in second.context['orders']], [order_ids[-1]])
         self.assertContains(second, 'Page 2 of 2')
-        self.assertContains(second, f'manage-order-{orders[-1].pk}')
-        self.assertNotContains(second, f'id="manage-order-{orders[0].pk}"')
+        self.assertContains(second, f'manage-order-{order_ids[-1]}')
+        self.assertNotContains(second, f'id="manage-order-{order_ids[0]}"')
 
     def test_default_date_range_includes_today_and_30_days_back(self):
         staff = User.objects.create_user(username='date-boundary-staff', is_staff=True)
@@ -399,7 +598,8 @@ class OrderFulfilmentTests(TestCase):
         with patch('shop.views.create_stripe_checkout', return_value=SimpleNamespace(url='https://checkout.stripe.com/test-checkout')):
             response = self.client.post(reverse('checkout'), {
                 'email': 'customer@example.com', 'shipping_method': 'standard_uk',
-                'billing_name': 'Test Customer', 'billing_address1': '10 High Street',
+                'phone_country': 'GB', 'phone': '7123456789',
+                'billing_name': 'Test Customer', 'billing_house_flat': '10', 'billing_address1': 'High Street',
                 'billing_city': 'London', 'billing_postcode': 'SW1A 1AA', 'billing_country': 'United Kingdom',
             })
         self.assertEqual(response.status_code, 302)
@@ -423,7 +623,7 @@ class OrderFulfilmentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
         product.refresh_from_db()
-        self.assertEqual(order.payment_status, 'pending')
+        self.assertEqual(order.payment_status, 'processing')
         self.assertIsNone(order.stock_deducted_at)
         self.assertEqual(product.stock_quantity, 95)
 

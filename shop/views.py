@@ -22,8 +22,8 @@ from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import Avg, Case, Count, DecimalField, DurationField, ExpressionWrapper, F, IntegerField, Min, Q, Sum, Value, When
-from django.db.models.functions import TruncMonth, TruncQuarter, TruncYear
-from django.http import FileResponse, HttpResponse, JsonResponse
+from django.db.models.functions import Replace, TruncMonth, TruncQuarter, TruncYear, Upper
+from django.http import FileResponse, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.core.mail import send_mail
@@ -35,23 +35,31 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
 
 import stripe
 
 from .cart import Cart
+from .phone import phone_countries
+from .checkout_recovery import checkout_attempt, checkout_fingerprint, clear_paid_checkout_cart, previous_checkout_session, update_unpaid_checkout
 from .assistant import contains_personal_data, gemini_chat_reply, gemini_rate_limited
-from .shipping import checkout_shipping_configuration, destination_shipping_price, matching_shipping_rate, parcel_metrics, shipping_rate_payload
+from .shipping import checkout_shipping_configuration, destination_shipping_price, matching_shipping_rate, parcel_metrics, shipping_delivery_summary, shipping_rate_payload
 from .cookie_consent import has_cookie_consent
-from .forms import CheckoutForm, CollectionManagementForm, CustomDesignRequestForm, CustomerProfileForm, CustomerReviewForm, DeliveryOptionManagementForm, DELIVERY_OPTIONS, EmailAuthenticationForm, EnquiryForm, InterestSignupForm, OrderManagementForm, ProductManagementForm, ProductShippingForm, ShippingPackagingManagementForm, ShippingRateManagementForm, SignUpForm, StockManagementForm, get_delivery_options
+from .middleware import analytics_location_fields
+from .forms import CheckoutForm, CollectionManagementForm, CustomDesignRequestForm, CustomerProfileForm, CustomerReviewForm, DeliveryOptionManagementForm, DeliveryRegionManagementForm, DELIVERY_OPTIONS, EmailAuthenticationForm, EnquiryForm, GuestOrderTrackingForm, InterestSignupForm, OrderManagementForm, ProductManagementForm, ProductShippingForm, ShippingPackagingManagementForm, ShippingRateManagementForm, SignUpForm, StockManagementForm, get_delivery_options
 
 logger = logging.getLogger(__name__)
-from .models import AnalyticsEvent, BlockedIP, Collection, CustomDesignRequest, CustomDesignRequestReply, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, Enquiry, EnquiryReply, InterestSignup, Order, OrderItem, PrivacyRequest, Product, ProductImage, SecurityEvent, ShippingPackaging, ShippingRate, WebhookEvent
+from .models import AnalyticsEvent, BlockedIP, Collection, CustomDesignRequest, CustomDesignRequestReply, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, DeliveryRegion, Enquiry, EnquiryReply, InterestSignup, Order, OrderItem, PrivacyRequest, Product, ProductImage, SecurityEvent, ShippingPackaging, ShippingRate, WebhookEvent
 from .services import build_order_pdf, create_stripe_checkout, mark_stripe_order_paid, refund_stripe_order, resolve_ip_locations, send_order_confirmation, send_preorder_request_emails, send_restock_notification, send_tracking_email, update_stripe_payment_details
-from .models import IPGeolocation, StockMovement
-from .forms import OfflineSaleForm, RefundNotesForm
+from .models import IPGeolocation, ProductOption, StockMovement
+from .forms import CatalogueFilterForm, CustomerShippingAddressForm, OfflineSaleForm, ProductCatalogueFilterForm, ProductCategoryManagementForm, ProductTagManagementForm, ProductOptionFormSet, RefundNotesForm
+from .models import ProductCategory, ProductTag
+from .forms import OrderReminderRuleForm
+from .models import CheckoutAttempt, OrderReminderDelivery, OrderReminderRule
 from .user_dashboard import filtered_users, user_filters, user_summary
 from .seo import collection_metadata, product_metadata, robots_response
 from .sales import append_refund_notes, completed_sales_report, record_offline_sale, reconciliation_report, replenishment_budget, sales_window, sync_stripe_transactions
+from .order_tracking import order_tracking_data, private_order_tracking_path, tracking_order_id
 
 
 def home(request):
@@ -68,6 +76,9 @@ def home(request):
 
 def heritage(request):
     return render(request, 'shop/heritage.html')
+
+def terms_and_conditions(request):
+    return render(request, 'shop/terms_and_conditions.html')
 
 @login_required(login_url='login')
 def custom_design(request):
@@ -212,7 +223,7 @@ def store_assistant(request):
 
     product_intent = any(word in query for word in ('product', 'jewellery', 'jewelry', 'necklace', 'earring', 'bracelet', 'ring', 'collection', 'material', 'size', 'price', 'stock'))
     if product_intent:
-        products = list(Product.objects.filter(active=True).select_related('collection'))
+        products = list(Product.objects.filter(active=True).select_related('collection').prefetch_related('options'))
         matches = [product for product in products if product.name.casefold() in query]
         if not matches:
             words = {word.strip('?!.,:;') for word in query.split()} - {
@@ -229,10 +240,14 @@ def store_assistant(request):
             specifications = []
             if product.material:
                 specifications.append(f'material: {product.material}')
-            if product.size:
-                specifications.append(f'size: {product.size}')
-            if product.length:
-                specifications.append(f'length: {product.length}')
+            for option in product.options.all():
+                specifications.append(f'{option.kind.lower()}: {option.label} (+£{option.additional_cost:.2f})')
+            if product.chain_style:
+                specifications.append(f'chain style: {product.chain_style}')
+            if product.colour:
+                specifications.append(f'colour: {product.colour}')
+            if product.dimensions:
+                specifications.append(f'pendant dimensions: {product.dimensions}')
             if product.weight:
                 specifications.append(f'weight: {product.weight}')
             if specifications:
@@ -282,14 +297,22 @@ def robots_txt(request):
     return robots_response(request)
 
 def catalogue(request):
-    qs = Product.objects.filter(active=True).select_related('collection').prefetch_related('images')
+    qs = Product.objects.filter(active=True).select_related('collection', 'category').prefetch_related('images')
     collection = request.GET.get('collection', '')
-    q = request.GET.get('q', '')
-    sort = request.GET.get('sort', 'default')
+    filter_form = CatalogueFilterForm(request.GET)
+    valid = filter_form.is_valid()
+    sort = filter_form.cleaned_data.get('sort') or 'default'
     if collection:
         qs = qs.filter(collection__slug=collection)
-    if q:
-        qs = qs.filter(name__icontains=q)
+    if not valid:
+        qs = qs.none()
+    else:
+        category = filter_form.cleaned_data['category']
+        tags = filter_form.cleaned_data['tags']
+        if category:
+            qs = qs.filter(category=category)
+        if tags:
+            qs = qs.filter(tags__in=tags).distinct()
     if sort == 'price_asc':
         qs = qs.order_by('price', 'name')
     elif sort == 'price_desc':
@@ -306,19 +329,23 @@ def catalogue(request):
         sort = 'default'
     return render(request, 'shop/catalogue.html', {
         'products': qs,
-        'collections': Collection.objects.filter(active=True),
+        'filter_form': filter_form,
         'current_collection': collection,
         'current_sort': sort,
-        'query': q,
-    })
+    }, status=200 if valid else 400)
 
 def collection_detail(request, slug):
     collection = get_object_or_404(Collection, slug=slug, active=True)
     return render(request, 'shop/collection.html', {'collection': collection, 'products': collection.products.filter(active=True).prefetch_related('images'), **collection_metadata(collection)})
 
 def product_detail(request, slug):
-    product = get_object_or_404(Product.objects.select_related('collection').prefetch_related('images'), slug=slug, active=True)
-    return render(request, 'shop/product_detail.html', {'product': product, 'restock_form': InterestSignupForm(), **product_metadata(product)})
+    product = get_object_or_404(Product.objects.select_related('collection').prefetch_related('images', 'options'), slug=slug, active=True)
+    return render(request, 'shop/product_detail.html', {
+        'product': product,
+        'option_groups': product.option_groups(),
+        'shipping_methods': shipping_delivery_summary(),
+        'restock_form': InterestSignupForm(), **product_metadata(product),
+    })
 
 @login_required(login_url='login')
 @require_POST
@@ -381,6 +408,9 @@ def restock_add_to_bag(request, slug):
     if payload.get('product_id') != product.pk:
         messages.error(request, 'This stock notification link is not valid for this product.')
         return redirect(product.get_absolute_url())
+    if product.options.exists():
+        messages.info(request, 'Choose your options before adding this piece to your bag.')
+        return redirect(product.get_absolute_url())
     Cart(request).add(product, 1)
     messages.success(request, f'{product.name} added to your bag.')
     return redirect('cart')
@@ -404,8 +434,17 @@ def send_restock_notifications(product):
 def add_to_cart(request, pk):
     product = get_object_or_404(Product, pk=pk, active=True)
     if request.method != 'POST': return redirect(product.get_absolute_url())
-    quantity = max(1, int(request.POST.get('quantity', 1)))
-    Cart(request).add(product, quantity)
+    try:
+        quantity = int(request.POST.get('quantity', 1))
+        if quantity < 1 or quantity > product.stock_quantity:
+            raise ValidationError('Choose a quantity within the available stock.')
+        Cart(request).add(product, quantity, option_ids=request.POST.getlist('options'))
+    except (TypeError, ValueError):
+        messages.error(request, 'Enter a valid quantity.')
+        return redirect(product.get_absolute_url())
+    except ValidationError as error:
+        messages.error(request, ' '.join(error.messages))
+        return redirect(product.get_absolute_url())
     messages.success(request, f'{product.name} added to your bag.', extra_tags='bag-added')
     return redirect(request.POST.get('next') or 'checkout')
 
@@ -428,10 +467,9 @@ def delivery_cost(method, subtotal, country=None, items=None):
 def checkout_destination_country(form, user):
     data = form.data if form.is_bound else form.initial
     address_type = 'shipping' if data.get('ship_to_different_address') in (True, 'on', 'true', '1') else 'billing'
-    address_field = 'shipping_address' if address_type == 'shipping' else 'billing_address'
     country_field = 'shipping_country' if address_type == 'shipping' else 'billing_country'
-    saved_address_id = data.get(address_field)
-    if user.is_authenticated and saved_address_id:
+    saved_address_id = data.get('shipping_address', '')
+    if address_type == 'shipping' and user.is_authenticated and str(saved_address_id).isdecimal():
         address = CustomerAddress.objects.filter(
             pk=saved_address_id,
             user=user,
@@ -452,14 +490,6 @@ def generate_order_reference():
 def cart_view(request):
     cart = Cart(request)
     items = list(cart.items())
-    method = request.session.get('delivery_method', 'standard_uk')
-    delivery_options = get_delivery_options()
-    valid_methods = {value for value, label in delivery_options}
-    if request.method == 'POST' and request.POST.get('shipping_method') in valid_methods:
-        method = request.POST['shipping_method']
-        request.session['delivery_method'] = method
-        request.session.modified = True
-    cost = delivery_cost(method, cart.subtotal)
     return render(request, 'shop/cart.html', {
         'cart': cart,
         'items': items,
@@ -468,30 +498,45 @@ def cart_view(request):
             stock_quantity__gt=0,
         ).exclude(
             pk__in=[item['product'].pk for item in items],
-        ).prefetch_related('images').order_by('-featured', 'name')[:4],
-        'delivery_options': delivery_options,
-        'selected_delivery': method,
-        'delivery_cost': cost,
-        'cart_total': cart.subtotal + cost,
+        ).prefetch_related('images', 'options').order_by('-featured', 'name')[:4],
+        'has_invalid_items': any(item['error'] for item in items),
     })
 
 def update_cart(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    if request.method == 'POST': Cart(request).set(product, max(0, int(request.POST.get('quantity', 0))))
+    if request.method == 'POST':
+        try:
+            Cart(request).set(product, max(0, int(request.POST.get('quantity', 0))), key=request.POST.get('key'))
+        except (TypeError, ValueError):
+            messages.error(request, 'Enter a valid quantity.')
+        except ValidationError as error:
+            messages.error(request, ' '.join(error.messages))
     return redirect('cart')
 
 def remove_from_cart(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    if request.method == 'POST': Cart(request).remove(product)
+    if request.method == 'POST':
+        try:
+            Cart(request).remove(product, key=request.POST.get('key'))
+        except (TypeError, ValueError, ValidationError):
+            messages.error(request, 'This bag selection is invalid. Please refresh your bag and try again.')
     return redirect('cart')
 
 
+@never_cache
 def checkout(request):
+    attempt = checkout_attempt(request)
+    if attempt and attempt.order and attempt.order.paid_at and not attempt.cart_cleared_at:
+        return redirect(f'{reverse("checkout_success")}?{urlencode({"session_id": attempt.order.stripe_session_id})}')
     cart = Cart(request)
     items = list(cart.items())
 
     if not items:
         return redirect('cart')
+    if any(row['error'] for row in items):
+        messages.error(request, 'Some product options are no longer available. Remove those items and choose your options again before checkout.')
+        return redirect('cart')
+    subtotal = sum((row['total'] for row in items), Decimal('0.00'))
 
     delivery_options = get_delivery_options()
     delivery_rates = []
@@ -500,105 +545,115 @@ def checkout(request):
         delivery_rates.append({
             'code': code,
             'label': label,
+            'transit': option.transit_time,
             'price': str(option.price),
             'free_over': str(option.free_over) if option.free_over is not None else None,
         })
     current_parcel = parcel_metrics(items)
     configured_shipping_rates = shipping_rate_payload()
     country_shipping_config = checkout_shipping_configuration()
+    saved_addresses = {'shipping': []}
+    attempt = attempt or checkout_attempt(request, create=True)
+
+    def render_checkout(form):
+        selected_method = form.data.get('shipping_method', form.initial.get('shipping_method', request.session.get('delivery_method', 'standard_uk')))
+        selected_country = checkout_destination_country(form, request.user)
+        selected_delivery_cost = delivery_cost(selected_method, subtotal, selected_country, items)
+        return render(request, 'shop/checkout.html', {
+            'form': form, 'cart': cart, 'items': items,
+            'delivery_cost': selected_delivery_cost,
+            'checkout_subtotal': subtotal, 'checkout_total': subtotal + selected_delivery_cost,
+            'delivery_rates': delivery_rates, 'shipping_rate_data': configured_shipping_rates,
+            'country_shipping_config': country_shipping_config, 'parcel_metrics': current_parcel,
+            'saved_checkout_addresses': saved_addresses,
+            'phone_country_data': phone_countries(),
+            'billing_profile': getattr(request.user, 'customer_profile', None) if request.user.is_authenticated else None,
+            'pending_checkout': attempt.order if attempt.order and not attempt.cart_cleared_at and attempt.order.is_unpaid_checkout else None,
+        })
 
     if request.user.is_authenticated:
         profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
-        profile_address = {
-            'house_number': profile.house_number,
-            'street_name': profile.street_name,
-            'city': profile.city,
-            'postcode': profile.postcode,
-            'country': profile.country,
-        }
-        if all(profile_address.values()):
-            for address_type in ('billing', 'shipping'):
-                matching_addresses = CustomerAddress.objects.filter(
-                    user=request.user,
-                    address_type=address_type,
-                    house_number=profile.house_number,
-                    street_name=profile.street_name,
-                    city=profile.city,
-                    postcode=profile.postcode,
-                    country=profile.country,
-                ).order_by('id')
-                if not matching_addresses.exists():
-                    CustomerAddress.objects.create(
-                        user=request.user,
-                        address_type=address_type,
-                        label='Saved address',
-                        **profile_address,
-                    )
-                else:
-                    matching_addresses.exclude(pk=matching_addresses.first().pk).delete()
+        saved_addresses['shipping'] = list(CustomerAddress.objects.filter(
+            user=request.user, address_type='shipping',
+        ).values('id', 'country'))
 
     if request.method == 'POST':
         form = CheckoutForm(request.POST, user=request.user)
         if form.is_valid():
-            unavailable = [
+            quantities = {}
+            for row in items:
+                product = row['product']
+                quantities[product.pk] = quantities.get(product.pk, 0) + row['quantity']
+            unavailable = list({
                 f"{row['product'].name} only has {row['product'].stock_quantity} available."
                 for row in items
-                if row['quantity'] > row['product'].stock_quantity
-            ]
+                if quantities[row['product'].pk] > row['product'].stock_quantity
+            })
             if unavailable:
                 for message in unavailable:
                     messages.error(request, message)
-                return render(request, 'shop/checkout.html', {
-                    'form': form,
-                    'cart': cart,
-                    'items': items,
-                    'delivery_cost': delivery_cost(form.cleaned_data.get('shipping_method', 'standard_uk'), cart.subtotal, checkout_destination_country(form, request.user), items),
-                    'delivery_rates': delivery_rates,
-                    'shipping_rate_data': configured_shipping_rates,
-                    'country_shipping_config': country_shipping_config,
-                    'parcel_metrics': current_parcel,
-                })
+                return render_checkout(form)
 
             with transaction.atomic():
+                attempt = CheckoutAttempt.objects.select_for_update().select_related('order').get(pk=attempt.pk)
+                fingerprint = checkout_fingerprint(
+                    form, items, delivery_cost(form.cleaned_data['shipping_method'], subtotal, checkout_destination_country(form, request.user), items),
+                )
+                try:
+                    if attempt.order and not attempt.cart_cleared_at and not attempt.order.stripe_session_id:
+                        create_stripe_checkout(attempt.order, request)
+                    previous_session = previous_checkout_session(attempt, fingerprint)
+                except (stripe.StripeError, ImproperlyConfigured) as error:
+                    logger.error('Checkout recovery failed for attempt %s: type=%s code=%s', attempt.pk, type(error).__name__, getattr(error, 'code', None))
+                    form.add_error(None, 'We could not check your previous payment. Your bag has been kept. Please try again shortly or contact customer care before placing another order.')
+                    return render_checkout(form)
+                if previous_session:
+                    previous_order = attempt.order
+                    if previous_session.get('payment_status') == 'paid' or previous_session.get('status') == 'complete':
+                        if previous_session.get('payment_status') != 'paid':
+                            update_unpaid_checkout(previous_order, 'processing')
+                        return redirect(f'{reverse("checkout_success")}?{urlencode({"session_id": previous_order.stripe_session_id})}')
+                    if not previous_session.get('url'):
+                        logger.error('Open Stripe checkout has no URL for order %s', previous_order.pk)
+                        form.add_error(None, 'We could not resume your payment. Your bag has been kept. Please contact customer care.')
+                        return render_checkout(form)
+                    if previous_order.payment_status == 'failed':
+                        previous_order.payment_status = 'pending'
+                        previous_order.save(update_fields=['payment_status', 'updated_at'])
+                    logger.info('Resuming unpaid checkout for order %s', previous_order.pk)
+                    return redirect(previous_session['url'])
                 order = form.save(commit=False)
                 order.user = request.user if request.user.is_authenticated else None
                 order.order_reference = generate_order_reference()
                 order.delivery_method = form.cleaned_data['shipping_method']
-                billing = CustomerAddress.objects.filter(
-                    pk=form.cleaned_data.get('billing_address'),
-                    user=request.user,
-                    address_type='billing',
-                ).first() if request.user.is_authenticated and form.cleaned_data.get('billing_address') else None
-                full_name = request.user.get_full_name() if request.user.is_authenticated else ''
-                order.billing_name = form.cleaned_data.get('billing_name') or full_name or order.shipping_name
-                if billing:
-                    order.billing_address1 = f'{billing.house_number} {billing.street_name}'.strip()
-                    order.billing_address2 = ''
-                    order.billing_city = billing.city
-                    order.billing_postcode = billing.postcode
-                    order.billing_country = billing.country
-                else:
-                    order.billing_address1 = form.cleaned_data['billing_address1']
-                    order.billing_address2 = form.cleaned_data['billing_address2']
-                    order.billing_city = form.cleaned_data['billing_city']
-                    order.billing_postcode = form.cleaned_data['billing_postcode']
-                    order.billing_country = form.cleaned_data['billing_country']
-                    if request.user.is_authenticated:
-                        billing_values = {
-                            'label': 'Billing address',
-                            'house_number': order.billing_address1.split(' ', 1)[0],
-                            'street_name': order.billing_address1.split(' ', 1)[1] if ' ' in order.billing_address1 else order.billing_address1,
-                            'city': order.billing_city,
-                            'postcode': order.billing_postcode,
-                            'country': order.billing_country,
-                        }
-                        billing_address = CustomerAddress.objects.filter(user=request.user, address_type='billing').first()
-                        if billing_address:
-                            for key, value in billing_values.items():
-                                setattr(billing_address, key, value)
-                            billing_address.save()
-                        else:
-                            CustomerAddress.objects.create(user=request.user, address_type='billing', **billing_values)
+                order.billing_name = form.cleaned_data['billing_name']
+                order.billing_address1 = ' '.join((
+                    form.cleaned_data['billing_house_flat'],
+                    form.cleaned_data['billing_address1'],
+                ))
+                order.billing_address2 = form.cleaned_data['billing_address2']
+                order.billing_city = form.cleaned_data['billing_city']
+                order.billing_postcode = form.cleaned_data['billing_postcode']
+                order.billing_country = form.cleaned_data['billing_country']
+                if request.user.is_authenticated:
+                    profile.phone = form.cleaned_data['phone']
+                    profile.save(update_fields=['phone'])
+                    billing_values = {
+                        'label': 'Billing address',
+                        'house_number': form.cleaned_data['billing_house_flat'],
+                        'street_name': form.cleaned_data['billing_address1'],
+                        'address2': form.cleaned_data['billing_address2'],
+                        'city': order.billing_city,
+                        'postcode': order.billing_postcode,
+                        'country': order.billing_country,
+                    }
+                    billing_address = CustomerAddress.objects.filter(user=request.user, address_type='billing').first()
+                    if billing_address:
+                        for key, value in billing_values.items():
+                            setattr(billing_address, key, value)
+                        billing_address.save()
+                    else:
+                        CustomerAddress.objects.create(user=request.user, address_type='billing', **billing_values)
 
                 if form.cleaned_data.get('ship_to_different_address'):
                     shipping = CustomerAddress.objects.filter(
@@ -608,14 +663,19 @@ def checkout(request):
                     ).first() if request.user.is_authenticated and form.cleaned_data.get('shipping_address') else None
                     if shipping:
                         order.shipping_name = order.billing_name
-                        order.shipping_address1 = f'{shipping.house_number} {shipping.street_name}'.strip()
-                        order.shipping_address2 = ''
+                        order.shipping_address1 = ' '.join(part for part in (shipping.house_number, shipping.street_name) if part)
+                        order.shipping_address2 = shipping.address2
                         order.shipping_city = shipping.city
                         order.shipping_postcode = shipping.postcode
                         order.shipping_country = shipping.country
                     else:
-                        order.shipping_name = form.cleaned_data['shipping_name'] or order.billing_name
-                        order.shipping_address1 = form.cleaned_data['shipping_address1']
+                        order.shipping_name = form.cleaned_data['shipping_name']
+                        order.shipping_address1 = ' '.join(
+                            part for part in (
+                                form.cleaned_data['shipping_house_flat'],
+                                form.cleaned_data['shipping_address1'],
+                            ) if part
+                        )
                         order.shipping_address2 = form.cleaned_data['shipping_address2']
                         order.shipping_city = form.cleaned_data['shipping_city']
                         order.shipping_postcode = form.cleaned_data['shipping_postcode']
@@ -625,8 +685,9 @@ def checkout(request):
                                 user=request.user,
                                 address_type='shipping',
                                 label=f'{order.shipping_address1}, {order.shipping_city}',
-                                house_number=order.shipping_address1.split(' ', 1)[0],
-                                street_name=order.shipping_address1.split(' ', 1)[1] if ' ' in order.shipping_address1 else order.shipping_address1,
+                                house_number=form.cleaned_data['shipping_house_flat'],
+                                street_name=form.cleaned_data['shipping_address1'],
+                                address2=order.shipping_address2,
                                 city=order.shipping_city,
                                 postcode=order.shipping_postcode,
                                 country=order.shipping_country,
@@ -638,8 +699,8 @@ def checkout(request):
                     order.shipping_city = order.billing_city
                     order.shipping_postcode = order.billing_postcode
                     order.shipping_country = order.billing_country
-                order.delivery_cost = delivery_cost(order.delivery_method, cart.subtotal, order.shipping_country, items)
-                order.subtotal = cart.subtotal
+                order.delivery_cost = delivery_cost(order.delivery_method, subtotal, order.shipping_country, items)
+                order.subtotal = subtotal
                 order.shipping = order.delivery_cost
                 order.total = order.subtotal + order.shipping
                 order.currency = (settings.STRIPE_CURRENCY or 'gbp').upper()
@@ -653,14 +714,20 @@ def checkout(request):
                         product=product,
                         product_name=product.name,
                         sku=product.sku,
-                        unit_price=product.price,
+                        unit_price=row['unit_price'],
                         unit_cost=product.cost_price,
                         quantity=row['quantity'],
+                        options_summary=', '.join(f'{option.kind}: {option.label}' for option in row['options']),
                     )
+                attempt.order = order
+                attempt.fingerprint = fingerprint
+                attempt.cart_snapshot = dict(cart.data)
+                attempt.form_data = dict(form.cleaned_data)
+                attempt.cart_cleared_at = None
+                attempt.save(update_fields=['order', 'fingerprint', 'cart_snapshot', 'form_data', 'cart_cleared_at'])
                 try:
                     checkout_session = create_stripe_checkout(order, request)
                 except (stripe.StripeError, ImproperlyConfigured) as error:
-                    transaction.set_rollback(True)
                     checkout_session = None
                     logger.error(
                         'Checkout session creation failed: type=%s code=%s',
@@ -669,9 +736,6 @@ def checkout(request):
                     form.add_error(None, 'We could not start your payment. Your bag has been kept. Please try again shortly or contact customer care.')
 
             if checkout_session is not None:
-                cart.clear()
-                request.session.pop('delivery_method', None)
-                request.session.modified = True
                 return redirect(checkout_session.url)
     else:
         initial = {
@@ -680,56 +744,31 @@ def checkout(request):
             'ship_to_different_address': False,
         }
         if request.user.is_authenticated:
-            profile = getattr(request.user, 'customer_profile', None)
-            if profile:
-                initial.update({
-                    'shipping_name': ' '.join(
-                        part for part in [request.user.first_name, request.user.last_name] if part
-                    ),
-                    'shipping_address1': ' '.join(
-                        part for part in [profile.house_number, profile.street_name] if part
-                    ),
-                    'shipping_address2': profile.address,
-                    'shipping_city': profile.city,
-                    'shipping_postcode': profile.postcode,
-                    'shipping_country': profile.country,
-                    'billing_name': ' '.join(part for part in [request.user.first_name, request.user.last_name] if part),
-                    'billing_address1': ' '.join(part for part in [profile.house_number, profile.street_name] if part),
-                    'billing_address2': profile.address,
-                    'billing_city': profile.city,
-                    'billing_postcode': profile.postcode,
-                    'billing_country': profile.country,
-                })
-                initial['billing_name'] = ' '.join(
-                    part for part in [request.user.first_name, request.user.last_name] if part
-                )
+            billing = CustomerAddress.objects.filter(user=request.user, address_type='billing').first()
+            billing_source = billing or profile
+            billing_name = request.user.get_full_name() or (
+                request.user.orders.exclude(billing_name='').order_by('-created_at', '-pk')
+                .values_list('billing_name', flat=True).first() or ''
+            )
+            initial.update({
+                'billing_name': billing_name,
+                'billing_house_flat': billing_source.house_number,
+                'billing_address1': billing_source.street_name,
+                'billing_address2': billing.address2 if billing else profile.address,
+                'billing_city': billing_source.city,
+                'billing_postcode': billing_source.postcode,
+                'billing_country': billing_source.country,
+                'shipping_name': billing_name,
+                'phone': profile.phone,
+            })
+        if attempt.order and not attempt.cart_cleared_at:
+            initial.update(attempt.form_data)
         form = CheckoutForm(initial=initial, user=request.user)
 
-    selected_method = form.data.get('shipping_method', form.initial.get('shipping_method', request.session.get('delivery_method', 'standard_uk')))
-    selected_country = checkout_destination_country(form, request.user)
-    saved_addresses = {'billing': [], 'shipping': []}
-    if request.user.is_authenticated:
-        for address_type in saved_addresses:
-            saved_addresses[address_type] = list(CustomerAddress.objects.filter(
-                user=request.user,
-                address_type=address_type,
-            ).values('id', 'country'))
-    selected_delivery_cost = delivery_cost(selected_method, cart.subtotal, selected_country, items)
-    return render(request, 'shop/checkout.html', {
-        'form': form,
-        'cart': cart,
-        'items': items,
-        'delivery_cost': selected_delivery_cost,
-        'checkout_total': cart.subtotal + selected_delivery_cost,
-        'delivery_rates': delivery_rates,
-        'shipping_rate_data': configured_shipping_rates,
-        'country_shipping_config': country_shipping_config,
-        'parcel_metrics': current_parcel,
-        'saved_checkout_addresses': saved_addresses,
-        'billing_profile': getattr(request.user, 'customer_profile', None) if request.user.is_authenticated else None,
-    })
+    return render_checkout(form)
 
 
+@never_cache
 def checkout_success(request):
     session_id = request.GET.get('session_id')
     order = None
@@ -742,20 +781,30 @@ def checkout_success(request):
                 session = stripe.checkout.Session.retrieve(session_id).to_dict()
                 if session.get('payment_status') == 'paid':
                     mark_stripe_order_paid(order)
+                    clear_paid_checkout_cart(request, order)
+                elif session.get('status') == 'complete' and not order.paid_at:
+                    update_unpaid_checkout(order, 'processing')
                 update_stripe_payment_details(order, session.get('payment_intent'))
                 if session.get('payment_status') == 'paid' and not order.payment_confirmation_sent_at and send_order_confirmation(order.pk):
                     order.payment_confirmation_sent_at = timezone.now()
                     order.save(update_fields=['payment_confirmation_sent_at', 'updated_at'])
                 order.refresh_from_db()
-            except stripe.error.StripeError:
-                pass
+            except stripe.error.StripeError as error:
+                logger.error('Payment confirmation check failed for order %s: type=%s code=%s', order.pk, type(error).__name__, getattr(error, 'code', None))
+                messages.error(request, 'We could not verify your payment right now. Please do not place another order; contact customer care if confirmation does not arrive.')
     elif request.GET.get('order_id'):
-        order = get_object_or_404(Order, pk=request.GET.get('order_id'))
+        order = get_object_or_404(
+            Order.objects.filter(user=request.user) if request.user.is_authenticated else Order.objects.none(),
+            pk=request.GET.get('order_id'),
+        )
 
     if order is None:
         return render(request, 'shop/success.html', {'order': None})
 
-    return render(request, 'shop/success.html', {'order': order})
+    return render(request, 'shop/success.html', {
+        'order': order,
+        'tracking_page_url': private_order_tracking_path(order),
+    })
 
 
 @csrf_exempt
@@ -797,22 +846,19 @@ def stripe_webhook(request):
             mark_stripe_order_paid(order)
             try:
                 update_stripe_payment_details(order, payload.get('payment_intent'))
-            except stripe.error.StripeError:
-                pass
+            except stripe.error.StripeError as error:
+                logger.error('Payment details lookup failed for paid order %s: type=%s code=%s', order.pk, type(error).__name__, getattr(error, 'code', None))
             if not order.payment_confirmation_sent_at and send_order_confirmation(order.pk):
                 order.payment_confirmation_sent_at = timezone.now()
                 order.save(update_fields=['payment_confirmation_sent_at', 'updated_at'])
-            Cart(request).clear()
+        elif order and not order.paid_at:
+            update_unpaid_checkout(order, 'processing')
     elif event_type in {'checkout.session.expired', 'checkout.session.async_payment_failed'}:
-        if order and order.payment_status != 'failed':
-            order.payment_status = 'failed'
-            order.status = 'cancelled'
-            order.save(update_fields=['payment_status', 'status'])
+        if order and not order.paid_at:
+            update_unpaid_checkout(order, 'cancelled' if event_type == 'checkout.session.expired' else 'failed', cancel_order=True)
     elif event_type == 'payment_intent.payment_failed':
-        if order and order.payment_status != 'failed':
-            order.payment_status = 'failed'
-            order.status = 'cancelled'
-            order.save(update_fields=['payment_status', 'status'])
+        if order and not order.paid_at:
+            update_unpaid_checkout(order, 'failed')
     elif event_type == 'charge.refunded':
         if order:
             refunded_amount = Decimal(str(payload.get('amount_refunded', 0))) / Decimal('100')
@@ -830,6 +876,7 @@ def stripe_webhook(request):
         event_type=event_type,
         payload=event,
         status='processed',
+        processed_at=timezone.now(),
     )
     return JsonResponse({'received': True})
 
@@ -846,6 +893,100 @@ def enquiry(request):
     return render(request, 'shop/contact.html', {'form': form})
 
 
+def _order_tracking_lookup_rate_limited(request):
+    client_ip = request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR', 'unknown')
+    digest = hashlib.sha256(client_ip.encode()).hexdigest()[:32]
+    cache_key = f'order-tracking-lookup:{digest}'
+    if cache.add(cache_key, 1, timeout=900):
+        return False
+    try:
+        attempts = cache.incr(cache_key)
+    except ValueError:
+        cache.set(cache_key, 1, timeout=900)
+        return False
+    return attempts > 8
+
+
+@never_cache
+def order_tracking(request):
+    context = {
+        'lookup_form': None, 'lookup_order': None, 'orders': None,
+        'private_order_page': True,
+    }
+    response_status = 200
+    if 'token' in request.GET:
+        try:
+            order_id = tracking_order_id(request.GET['token'])
+        except signing.BadSignature:
+            context.update({
+                'lookup_form': GuestOrderTrackingForm(),
+                'lookup_message': 'This private tracking link is invalid or has expired. Use your latest order email or look up your order below.',
+                'private_link_error': True,
+            })
+            response_status = 400
+        else:
+            order = Order.objects.filter(pk=order_id).first()
+            if order is None:
+                context.update({
+                    'lookup_form': GuestOrderTrackingForm(),
+                    'lookup_message': 'This order is no longer available. Please contact us for help.',
+                    'private_link_error': True,
+                })
+                response_status = 404
+            else:
+                order.tracking_view = order_tracking_data(order)
+                context['direct_order'] = order
+    elif request.user.is_authenticated:
+        staff_tracking = request.user.is_active and request.user.is_staff
+        if staff_tracking:
+            orders = Order.objects.filter(
+                status__in=['pending', 'processing', 'shipped'], payment_status='paid',
+            ).select_related('assigned_to').prefetch_related('items').order_by('created_at', 'pk')
+        else:
+            orders = Order.objects.filter(user=request.user).prefetch_related('items').order_by('-created_at')
+        order_page = Paginator(orders, 10).get_page(request.GET.get('page'))
+        for order in order_page:
+            order.tracking_view = order_tracking_data(order)
+            if staff_tracking:
+                order.customer_tracking_path = private_order_tracking_path(order)
+        context.update({'orders': order_page, 'order_page': order_page, 'staff_tracking': staff_tracking})
+    else:
+        form = GuestOrderTrackingForm(request.POST or None)
+        lookup_order = None
+        lookup_message = ''
+        if request.method == 'POST' and form.is_valid():
+            if _order_tracking_lookup_rate_limited(request):
+                lookup_message = 'Too many lookup attempts. Please wait a few minutes before trying again.'
+                response_status = 429
+            else:
+                details = form.cleaned_data
+                postcode = ''.join(details['postcode'].split()).upper()
+                matching_orders = Order.objects.annotate(
+                    normalized_postcode=Replace(Upper('shipping_postcode'), Value(' '), Value('')),
+                ).filter(
+                    email__iexact=details['email'],
+                    normalized_postcode=postcode,
+                ).prefetch_related('items')
+                lookup_order = matching_orders.filter(
+                    order_reference__iexact=details['order_number'],
+                ).first()
+                if lookup_order is None and details['order_number'].isdecimal():
+                    lookup_order = matching_orders.filter(pk=int(details['order_number'])).first()
+                if lookup_order is None:
+                    lookup_message = 'We could not find an order matching those details. Check the information and try again.'
+                else:
+                    lookup_order.tracking_view = order_tracking_data(lookup_order)
+        context.update({
+            'lookup_form': form,
+            'lookup_order': lookup_order,
+            'lookup_message': lookup_message,
+        })
+    response = render(request, 'shop/order_tracking.html', context, status=response_status)
+    response['Referrer-Policy'] = 'strict-origin'
+    response['X-Robots-Tag'] = 'noindex, nofollow'
+    return response
+
+
 def account(request):
     if not request.user.is_authenticated:
         return render(request, 'registration/account_access.html', {
@@ -856,18 +997,49 @@ def account(request):
     edit_mode = request.GET.get('edit') == '1'
     profile_form = CustomerProfileForm(request.POST or None, instance=profile)
     if request.method == 'POST' and profile_form.is_valid():
-        profile_form.save()
+        with transaction.atomic():
+            profile_form.save()
+            CustomerAddress.objects.filter(user=request.user, address_type='billing').update(
+                house_number=profile.house_number,
+                street_name=profile.street_name,
+                city=profile.city,
+                postcode=profile.postcode,
+                country=profile.country,
+                address2=profile.address,
+            )
         messages.success(request, 'Your customer details have been saved.')
         return redirect('account')
     if request.method == 'POST':
         edit_mode = True
+    orders = list(request.user.orders.all().prefetch_related('items'))
+    for order in orders:
+        order.private_tracking_path = private_order_tracking_path(order)
+    billing = CustomerAddress.objects.filter(user=request.user, address_type='billing').first()
     return render(request, 'shop/account.html', {
-        'orders': request.user.orders.all().prefetch_related('items'),
+        'orders': orders,
         'profile': profile,
+        'billing_details': billing or profile,
+        'billing_address2': billing.address2 if billing else profile.address,
         'profile_form': profile_form,
         'edit_mode': edit_mode,
+        'shipping_addresses': CustomerAddress.objects.filter(user=request.user, address_type='shipping'),
         'privacy_request_pending': PrivacyRequest.objects.filter(user=request.user, status='pending').exists(),
     })
+
+
+@login_required
+def account_shipping_address(request, pk):
+    address = get_object_or_404(CustomerAddress, pk=pk, user=request.user, address_type='shipping')
+    if request.method == 'POST' and request.POST.get('action') == 'delete':
+        address.delete()
+        messages.success(request, 'Your saved shipping address has been removed.')
+        return redirect(reverse('account') + '#shipping-addresses')
+    form = CustomerShippingAddressForm(request.POST or None, instance=address)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Your shipping address has been saved.')
+        return redirect(reverse('account') + '#shipping-addresses')
+    return render(request, 'shop/account_shipping_address.html', {'form': form})
 
 
 def request_privacy_erasure(request):
@@ -892,8 +1064,7 @@ def analytics_click(request):
             product=Product.objects.filter(pk=payload.get('product_id')).first() if payload.get('product_id') else None,
             path=str(payload.get('path', ''))[:500],
             target=str(payload.get('target', ''))[:255],
-            ip_address=request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR'),
-            country=request.META.get('HTTP_CF_IPCOUNTRY', '')[:80],
+            **analytics_location_fields(request),
             referrer=request.META.get('HTTP_REFERER', '')[:500],
             user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
         )
@@ -1124,11 +1295,18 @@ def _filter_analytics_events(params):
     city = params.get('city', '').strip()
     if country or city:
         locations = IPGeolocation.objects.filter(is_private=False)
+        direct_match = Q()
+        fallback_event_match = Q()
         if country:
             locations = locations.filter(country__icontains=country)
+            direct_match &= Q(country__icontains=country)
+            fallback_event_match &= Q(country='') | Q(country__icontains=country)
         if city:
             locations = locations.filter(city__icontains=city)
-        filtered_events = filtered_events.filter(ip_address__in=locations.values('ip_address'))
+            direct_match &= Q(city__icontains=city)
+            fallback_event_match &= Q(city='') | Q(city__icontains=city)
+        fallback_event_match &= Q(ip_address__in=locations.values('ip_address'))
+        filtered_events = filtered_events.filter(direct_match | fallback_event_match)
     query = params.get('q', '').strip()
     if query:
         matching_locations = IPGeolocation.objects.filter(
@@ -1136,10 +1314,17 @@ def _filter_analytics_events(params):
         )
         if query.casefold() in 'private network':
             matching_locations = matching_locations | IPGeolocation.objects.filter(is_private=True)
-        location_match = Q(ip_address__in=matching_locations.values('ip_address'))
+        has_event_location = Q(country__gt='') | Q(city__gt='') | Q(region__gt='')
+        location_match = (
+            Q(country__icontains=query) | Q(city__icontains=query) | Q(region__icontains=query)
+            | (Q(ip_address__in=matching_locations.values('ip_address')) & ~has_event_location)
+        )
         if query.casefold() in 'unknown':
             known_locations = IPGeolocation.objects.filter(is_private=True) | IPGeolocation.objects.exclude(country='', city='')
-            location_match |= Q(ip_address__isnull=True) | ~Q(ip_address__in=known_locations.values('ip_address'))
+            location_match |= (
+                ~has_event_location
+                & (Q(ip_address__isnull=True) | ~Q(ip_address__in=known_locations.values('ip_address')))
+            )
         matching_types = [value for value, label in AnalyticsEvent.EVENT_TYPES if query.casefold() in label.casefold()]
         filtered_events = filtered_events.filter(
             location_match | Q(event_type__in=matching_types) | Q(path__icontains=query)
@@ -1189,7 +1374,10 @@ def control_analytics(request):
     event_page = paginator.get_page(request.GET.get('page'))
     locations = resolve_ip_locations(event.ip_address for event in event_page)
     for event in event_page:
-        event.location = locations.get(event.ip_address, 'Unknown')
+        if event.city or event.region:
+            event.location = event.location_label
+        else:
+            event.location = locations.get(event.ip_address, event.location_label)
     country = request.GET.get('country', '').strip()
     city = request.GET.get('city', '').strip()
     query = request.GET.get('q', '').strip()
@@ -1222,8 +1410,12 @@ def control_analytics(request):
         'include_home_ip': include_home_ip,
         'home_ip_configured': bool(getattr(settings, 'HOME_IP_ADDRESSES', ())),
         'analytics_clear_search_query': urlencode({**{key: value for key, value in chart_params.items() if key != 'q'}, 'page_size': page_size}),
-        'country_options': IPGeolocation.objects.filter(is_private=False).exclude(country='').order_by('country').values_list('country', flat=True).distinct(),
-        'city_options': IPGeolocation.objects.filter(is_private=False).exclude(city='').order_by('city').values_list('city', flat=True).distinct(),
+        'country_options': sorted(set(
+            IPGeolocation.objects.filter(is_private=False).exclude(country='').values_list('country', flat=True)
+        ) | set(AnalyticsEvent.objects.exclude(country='').values_list('country', flat=True))),
+        'city_options': sorted(set(
+            IPGeolocation.objects.filter(is_private=False).exclude(city='').values_list('city', flat=True)
+        ) | set(AnalyticsEvent.objects.exclude(city='').values_list('city', flat=True))),
         'analytics_chart_query': urlencode(chart_params),
         'analytics_pagination_query': urlencode({**chart_params, 'page_size': page_size}),
         'analytics_clear_dates_query': urlencode(clear_dates_params),
@@ -1236,13 +1428,13 @@ def control_products(request):
     editing = get_object_or_404(Product, pk=request.GET.get('edit')) if request.GET.get('edit') else None
     if request.method == 'POST':
         if request.POST.get('action') == 'delete':
+            messages.error(request, 'Product deletion is locked. Change the Active setting in the product form or Inventory page to hide it instead.')
+            return redirect('control_products')
+        if request.POST.get('action') in ('hide', 'show'):
             product = get_object_or_404(Product, pk=request.POST.get('product_id'))
-            try:
-                product.delete()
-            except ProtectedError:
-                messages.error(request, 'This product cannot be removed because it is associated with an order.')
-            else:
-                messages.success(request, 'Product removed.')
+            product.active = request.POST['action'] == 'show'
+            product.save(update_fields=['active', 'updated_at'])
+            messages.success(request, 'Product shown in the listing.' if product.active else 'Product hidden from the listing. Its data and order history have been retained.')
             return redirect('control_products')
         if request.POST.get('action') == 'delete_image':
             image = get_object_or_404(ProductImage, pk=request.POST.get('image_id'))
@@ -1252,9 +1444,16 @@ def control_products(request):
             messages.success(request, 'Image removed.')
             return redirect(f"{reverse('control_products')}?edit={product_id}")
         form = ProductManagementForm(request.POST, instance=editing)
-        if form.is_valid():
-            product = form.save(commit=False)
-            product.save(stock_actor=request.user)
+        option_formset = ProductOptionFormSet(request.POST, instance=form.instance, prefix='options')
+        form_valid = form.is_valid()
+        options_valid = option_formset.is_valid()
+        if form_valid and options_valid:
+            with transaction.atomic():
+                product = form.save(commit=False)
+                product.save(stock_actor=request.user)
+                form.save_m2m()
+                option_formset.instance = product
+                option_formset.save()
             send_restock_notifications(product)
             uploaded_images = request.FILES.getlist('images')
             if uploaded_images:
@@ -1272,23 +1471,42 @@ def control_products(request):
             return redirect('control_products')
     else:
         form = ProductManagementForm(instance=editing)
+        option_formset = ProductOptionFormSet(instance=form.instance, prefix='options')
     query = request.GET.get('q', '').strip()
     collection_filter = request.GET.get('collection', '').strip()
+    filter_form = ProductCatalogueFilterForm(request.GET, auto_id='product_filter_%s')
+    filters_valid = filter_form.is_valid()
+    filter_query = request.GET.copy()
+    filter_query.pop('edit', None)
     products = Product.objects.annotate(
-        pending_orders=Count('orderitem', filter=Q(orderitem__order__status='pending')),
-    ).all().prefetch_related('images')
+        pending_orders=Count('orderitem', filter=Q(orderitem__order__status='pending'), distinct=True),
+    ).all().select_related('collection', 'category').prefetch_related('images', 'tags')
+    if not filters_valid:
+        products = products.none()
+    else:
+        if filter_form.cleaned_data['category']:
+            products = products.filter(category=filter_form.cleaned_data['category'])
+        if filter_form.cleaned_data['tags']:
+            products = products.filter(tags__in=filter_form.cleaned_data['tags']).distinct()
     if query:
         products = products.filter(Q(name__icontains=query) | Q(sku__icontains=query))
     if collection_filter:
         products = products.filter(collection__slug=collection_filter)
     return render(request, 'shop/control_products.html', {
         'form': form,
+        'option_formset': option_formset,
+        'option_kinds': sorted({
+            kind.casefold(): kind
+            for kind in [*ProductOption.objects.values_list('kind', flat=True).distinct(), *ProductOption.SUGGESTED_KINDS]
+        }.values(), key=str.casefold),
         'products': products,
         'editing': editing,
         'query': query,
         'collections': Collection.objects.all(),
         'collection_filter': collection_filter,
-    })
+        'filter_form': filter_form,
+        'filter_query': filter_query.urlencode(),
+    }, status=200 if filters_valid else 400)
 
 
 @staff_member_required(login_url='login')
@@ -1405,6 +1623,71 @@ def control_stock_history(request):
 
 
 @staff_member_required(login_url='login')
+def control_notifications(request):
+    if not request.user.is_superuser:
+        return HttpResponseForbidden('Only administrators can configure order reminders.')
+    editing = get_object_or_404(OrderReminderRule, pk=request.GET['edit']) if request.GET.get('edit') else None
+    form = OrderReminderRuleForm(request.POST or None, instance=editing)
+    if request.method == 'POST':
+        if request.POST.get('action') == 'delete':
+            get_object_or_404(OrderReminderRule, pk=request.POST.get('rule_id')).delete()
+            messages.success(request, 'Reminder rule removed. Previously sent reminders remain recorded.')
+            return redirect('control_notifications')
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Order reminder configuration saved.')
+            return redirect('control_notifications')
+    return render(request, 'shop/control_notifications.html', {
+        'form': form, 'editing': editing,
+        'rules': OrderReminderRule.objects.prefetch_related('staff'),
+        'deliveries': OrderReminderDelivery.objects.select_related('order')[:50],
+    })
+
+
+@staff_member_required(login_url='login')
+def control_product_taxonomy(request):
+    editing_category = get_object_or_404(ProductCategory, pk=request.GET['edit_category']) if request.GET.get('edit_category') else None
+    editing_tag = get_object_or_404(ProductTag, pk=request.GET['edit_tag']) if request.GET.get('edit_tag') else None
+    category_form = ProductCategoryManagementForm(instance=editing_category, prefix='category')
+    tag_form = ProductTagManagementForm(instance=editing_tag, prefix='tag')
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'save_category':
+            category_form = ProductCategoryManagementForm(request.POST, instance=editing_category, prefix='category')
+            if category_form.is_valid():
+                category_form.save()
+                messages.success(request, 'Category saved.')
+                return redirect('control_product_taxonomy')
+        elif action == 'save_tag':
+            tag_form = ProductTagManagementForm(request.POST, instance=editing_tag, prefix='tag')
+            if tag_form.is_valid():
+                tag_form.save()
+                messages.success(request, 'Tag saved.')
+                return redirect('control_product_taxonomy')
+        elif action == 'delete_category':
+            category = get_object_or_404(ProductCategory, pk=request.POST.get('category_id'))
+            try:
+                category.delete()
+            except ProtectedError:
+                messages.error(request, 'This category is assigned to products. Reassign those products before removing it.')
+            else:
+                messages.success(request, 'Category removed.')
+            return redirect('control_product_taxonomy')
+        elif action == 'delete_tag':
+            get_object_or_404(ProductTag, pk=request.POST.get('tag_id')).delete()
+            messages.success(request, 'Tag removed from the catalogue and its products.')
+            return redirect('control_product_taxonomy')
+        else:
+            messages.error(request, 'Choose a valid category or tag action.')
+    return render(request, 'shop/control_product_taxonomy.html', {
+        'category_form': category_form, 'tag_form': tag_form,
+        'editing_category': editing_category, 'editing_tag': editing_tag,
+        'categories': ProductCategory.objects.annotate(product_count=Count('products')),
+        'tags': ProductTag.objects.annotate(product_count=Count('products')),
+    })
+
+
+@staff_member_required(login_url='login')
 def control_collections(request):
     editing = get_object_or_404(Collection, pk=request.GET.get('edit')) if request.GET.get('edit') else None
     if request.method == 'POST':
@@ -1426,9 +1709,11 @@ def control_collections(request):
 def control_delivery(request):
     editing = get_object_or_404(DeliveryOption, pk=request.GET.get('edit')) if request.GET.get('edit') else None
     editing_rate = get_object_or_404(ShippingRate, pk=request.GET.get('edit_rate')) if request.GET.get('edit_rate') else None
+    editing_region = get_object_or_404(DeliveryRegion, pk=request.GET.get('edit_region')) if request.GET.get('edit_region') else None
     packaging, _ = ShippingPackaging.objects.get_or_create(pk=1)
     packaging_form = ShippingPackagingManagementForm(instance=packaging)
     rate_form = ShippingRateManagementForm(instance=editing_rate)
+    region_form = DeliveryRegionManagementForm(instance=editing_region)
     product_shipping_forms = {}
 
     if request.method == 'POST':
@@ -1458,6 +1743,17 @@ def control_delivery(request):
                 messages.success(request, f'Parcel measurements saved for {product.name}.')
                 return redirect(f'{reverse("control_delivery")}#shipping-products')
             product_shipping_forms[product.pk] = product_form
+        elif action == 'save_region':
+            editing_region = get_object_or_404(DeliveryRegion, pk=request.POST['region_id']) if request.POST.get('region_id') else None
+            region_form = DeliveryRegionManagementForm(request.POST, instance=editing_region)
+            if region_form.is_valid():
+                region_form.save()
+                messages.success(request, 'Delivery group saved.')
+                return redirect(f'{reverse("control_delivery")}#delivery-regions')
+        elif action == 'delete_region':
+            get_object_or_404(DeliveryRegion, pk=request.POST.get('region_id')).delete()
+            messages.success(request, 'Delivery group removed.')
+            return redirect(f'{reverse("control_delivery")}#delivery-regions')
         elif action == 'delete':
             get_object_or_404(DeliveryOption, pk=request.POST.get('delivery_id')).delete()
             messages.success(request, 'Delivery option removed.')
@@ -1475,21 +1771,54 @@ def control_delivery(request):
         {'product': product, 'form': product_shipping_forms.get(product.pk) or ProductShippingForm(instance=product)}
         for product in Product.objects.order_by('name')
     ]
+    regions = list(DeliveryRegion.objects.prefetch_related('delivery_options'))
+    delivery_groups = [
+        {'region': region, 'options': list(region.delivery_options.all())}
+        for region in regions
+    ]
+    delivery_groups.append({
+        'region': None,
+        'options': list(DeliveryOption.objects.filter(region__isnull=True)),
+    })
     return render(request, 'shop/control_delivery.html', {
         'form': form,
-        'options': DeliveryOption.objects.all(),
+        'options': DeliveryOption.objects.select_related('region').all(),
         'editing': editing,
         'packaging_form': packaging_form,
         'rate_form': rate_form,
         'rates': ShippingRate.objects.select_related('service').all(),
         'editing_rate': editing_rate,
+        'region_form': region_form,
+        'regions': regions,
+        'editing_region': editing_region,
+        'delivery_groups': delivery_groups,
         'shipping_products': shipping_products,
     })
+
+
+def _send_order_dispatch_notification(request, order_id):
+    try:
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(pk=order_id)
+            if order.status != 'shipped' or order.tracking_email_sent_at:
+                return
+            if not send_tracking_email(order.pk):
+                raise RuntimeError('Dispatch email was not sent. Check the customer email and tracking number.')
+            order.tracking_email_sent_at = timezone.now()
+            order.save(update_fields=['tracking_email_sent_at', 'updated_at'])
+    except (SMTPException, OSError, RuntimeError):
+        logger.exception('Failed to send dispatch email for order %s', order_id)
+        messages.error(request, f'Order #{order_id} saved, but the dispatch email could not be sent. Check email settings and retry through Manage order.')
+    else:
+        messages.success(request, f'Dispatch email sent for order #{order.order_reference or order.pk}.')
 
 
 @staff_member_required(login_url='login')
 def control_orders(request):
     query = request.GET.get('q', '').strip()
+    payment_scope = request.GET.get('payment_scope', 'all')
+    if payment_scope not in {'all', 'paid', 'unpaid'}:
+        payment_scope = 'all'
     sort = request.GET.get('sort', 'newest')
     if sort not in {'oldest', 'newest'}:
         sort = 'newest'
@@ -1509,6 +1838,8 @@ def control_orders(request):
         end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min))
         messages.error(request, 'Enter a valid date range with the start date on or before the end date.')
     filters = {}
+    if payment_scope != 'all':
+        filters['payment_scope'] = payment_scope
     if query:
         filters['q'] = query
     if request.GET.get('sort') in {'oldest', 'newest'}:
@@ -1521,18 +1852,30 @@ def control_orders(request):
         filters['page'] = request.GET['page']
     orders_url = reverse('control_orders') + (f'?{urlencode(filters, doseq=True)}' if filters else '')
     editing = get_object_or_404(Order, pk=request.GET.get('edit')) if request.GET.get('edit') else None
+    if editing:
+        filters['edit'] = editing.pk
+        orders_url = reverse('control_orders') + '?' + urlencode(filters, doseq=True)
     if request.method == 'POST':
         if request.POST.get('action') == 'batch_update':
             order_ids = request.POST.getlist('order_ids')
             batch_status = request.POST.get('batch_status')
             if order_ids and batch_status in dict(Order.STATUS_CHOICES):
                 with transaction.atomic():
-                    for selected_order in Order.objects.select_for_update().filter(pk__in=order_ids):
+                    selected_orders = list(Order.objects.select_for_update().filter(pk__in=order_ids))
+                    if batch_status == 'shipped':
+                        missing_tracking = [str(order.order_reference or order.pk) for order in selected_orders if not order.tracking_number.strip()]
+                        if missing_tracking:
+                            messages.error(request, f'No orders updated. Add tracking numbers before shipping orders: {", ".join(missing_tracking)}.')
+                            return redirect(orders_url)
+                    for selected_order in selected_orders:
                         selected_order.status = batch_status
                         if batch_status == 'processing' and not selected_order.assigned_to_id:
                             selected_order.assigned_to = request.user
                         selected_order.save(update_fields=['status', 'assigned_to', 'updated_at'])
-                messages.success(request, f'{len(order_ids)} order(s) updated.')
+                messages.success(request, f'{len(selected_orders)} order(s) updated.')
+                if batch_status == 'shipped':
+                    for selected_order in selected_orders:
+                        _send_order_dispatch_notification(request, selected_order.pk)
             else:
                 messages.error(request, 'Select orders and a valid status first.')
             return redirect(orders_url)
@@ -1594,21 +1937,15 @@ def control_orders(request):
             order.save()
             messages.success(request, f'Order #{order.pk} updated.')
             if order.status == 'shipped':
-                if not order.tracking_number:
-                    messages.error(request, 'Order saved as shipped, but add a tracking number before dispatch email can be sent.')
-                elif not order.tracking_email_sent_at:
-                    try:
-                        if send_tracking_email(order.pk):
-                            order.tracking_email_sent_at = timezone.now()
-                            order.save(update_fields=['tracking_email_sent_at', 'updated_at'])
-                            messages.success(request, f'Tracking email sent to {order.email}.')
-                    except (SMTPException, OSError):
-                        logger.exception('Failed to send tracking email to %s', order.email)
-                        messages.error(request, 'Order saved, but the tracking email could not be sent. Check email settings.')
+                _send_order_dispatch_notification(request, order.pk)
             return redirect(orders_url)
     else:
         form = OrderManagementForm(instance=editing, user=request.user)
     orders = Order.objects.filter(created_at__gte=start_at, created_at__lt=end_at).select_related('assigned_to').prefetch_related('items')
+    if payment_scope == 'paid':
+        orders = orders.filter(Q(paid_at__isnull=False) | Q(payment_status__in=['paid', 'partially_refunded', 'refunded']))
+    elif payment_scope == 'unpaid':
+        orders = orders.filter(payment_channel='stripe', paid_at__isnull=True, payment_status__in=['pending', 'processing', 'failed', 'cancelled'])
     if selected_statuses:
         orders = orders.filter(status__in=selected_statuses)
     if query:
@@ -1619,9 +1956,25 @@ def control_orders(request):
             | Q(billing_postcode__icontains=query)
         )
     orders = orders.order_by('created_at', 'pk') if sort == 'oldest' else orders.order_by('-created_at', '-pk')
-    order_page = Paginator(orders, 50).get_page(request.GET.get('page'))
+    if editing:
+        orders = Order.objects.filter(pk=editing.pk).select_related('assigned_to').prefetch_related('items')
+    order_page = Paginator(orders, 50).get_page(1 if editing else request.GET.get('page'))
     for order in order_page:
         order.management_form = OrderManagementForm(instance=order, user=request.user)
+        order.tracking_view = order_tracking_data(order)
+        order.copy_addresses = []
+        for prefix, title in [('shipping', 'Delivery address'), ('billing', 'Billing address')]:
+            fields = [
+                {'key': f'{prefix}_{key}', 'label': label, 'value': getattr(order, f'{prefix}_{key}')}
+                for key, label in [
+                    ('name', 'Name'), ('address1', 'Address line 1'), ('address2', 'Address line 2'),
+                    ('city', 'Town / city'), ('postcode', 'Postcode'), ('country', 'Country'),
+                ]
+            ]
+            order.copy_addresses.append({
+                'key': prefix, 'title': title, 'fields': fields,
+                'full_address': '\n'.join(field['value'] for field in fields if field['value']),
+            })
     pagination_filters = {key: value for key, value in filters.items() if key != 'page'}
     pagination_filters.update(start=start_date.isoformat(), end=end_date.isoformat(), sort=sort)
     return render(request, 'shop/control_orders.html', {
@@ -1636,6 +1989,7 @@ def control_orders(request):
         'query': query,
         'sort': sort,
         'selected_statuses': selected_statuses,
+        'payment_scope': payment_scope,
         'status_choices': Order.STATUS_CHOICES,
     })
 

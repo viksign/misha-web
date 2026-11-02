@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}Track Your Order | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">ORDER CARE</p>
+	<h1>Track your order</h1>
+	{% if direct_order %}
+		<p>Follow your order from processing to dispatch. Keep this private link safe.</p>
+	{% elif staff_tracking %}
+		<p>Staff fulfilment queue: all paid Pending, Processing and Shipped orders, oldest first. View the same order journey as your customers.</p>
+	{% elif request.user.is_authenticated and not private_link_error %}
+		<p>View the progress of your MISHA orders and follow dispatched parcels.</p>
+	{% elif lookup_order %}
+		<p>Follow your order as our team prepares it for delivery.</p>
+	{% else %}
+		<p>Enter the email address, order number and delivery postcode used for your order.</p>
+	{% endif %}
+</section>
+
+<section class="section order-tracking-page">
+	{% if direct_order %}
+		<article class="order-tracking-card">
+			<header class="order-tracking-heading">
+				<div>
+					<p class="eyebrow">ORDER {{ direct_order.order_reference|default:direct_order.pk }}</p>
+					<h2>Placed {{ direct_order.created_at|date:'j F Y' }}</h2>
+				</div>
+				<span class="order-tracking-status">{{ direct_order.get_status_display }}</span>
+			</header>
+			{% include 'shop/_order_journey.html' with order=direct_order %}
+		</article>
+	{% elif request.user.is_authenticated and not private_link_error %}
+		{% for order in orders %}
+			<article class="order-tracking-card">
+				<header class="order-tracking-heading">
+					<div>
+						<p class="eyebrow">ORDER {{ order.order_reference|default:order.pk }}</p>
+						<h2>{{ order.created_at|date:'j F Y' }}</h2>
+					</div>
+					<span class="order-tracking-status">{{ order.get_status_display }}</span>
+				</header>
+				{% if staff_tracking %}
+					<div class="order-tracking-staff-details">
+						<p><strong>Customer:</strong> {{ order.shipping_name }} · {{ order.email }}</p>
+						<p><strong>Processing by:</strong> {{ order.processor_name }} · <strong>Payment:</strong> {{ order.get_payment_status_display }}</p>
+						<p><strong>Delivery method:</strong> {{ order.get_delivery_method_display }}. Royal Mail delivery updates are available through the parcel tracking link below, not synced automatically.</p>
+						<p><a class="button outline" href="{{ order.customer_tracking_path }}" target="_blank" rel="noopener noreferrer">View as customer</a> <a class="button outline" href="{% url 'control_orders' %}?edit={{ order.pk }}">Manage order</a></p>
+					</div>
+				{% endif %}
+				{% include 'shop/_order_journey.html' with order=order %}
+			</article>
+		{% empty %}
+			<div class="order-tracking-empty">
+				{% if staff_tracking %}
+					<h2>No active paid orders</h2>
+					<p>Paid Pending, Processing and Shipped orders will appear here, including guest orders.</p>
+				{% else %}
+					<h2>No orders yet</h2>
+					<p>Orders placed while signed in will appear here. If you checked out as a guest, use the guest lookup below.</p>
+				{% endif %}
+			</div>
+		{% endfor %}
+		{% if order_page.has_other_pages %}
+			<nav class="order-tracking-pagination" aria-label="Order pages">
+				{% if order_page.has_previous %}<a class="button outline" href="?page={{ order_page.previous_page_number }}">Previous</a>{% endif %}
+				<span>Page {{ order_page.number }} of {{ order_page.paginator.num_pages }}</span>
+				{% if order_page.has_next %}<a class="button outline" href="?page={{ order_page.next_page_number }}">Next</a>{% endif %}
+			</nav>
+		{% endif %}
+	{% else %}
+		{% if not lookup_order %}
+		<div class="order-tracking-lookup">
+			<h2>Guest order lookup</h2>
+			<form method="post" action="{% url 'order_tracking' %}" class="order-tracking-form">
+				{% csrf_token %}
+				{{ lookup_form.non_field_errors }}
+				{% for field in lookup_form %}
+					<label class="checkout-field" for="{{ field.id_for_label }}">
+						{{ field.label }}{{ field }}
+						{% for error in field.errors %}<small>{{ error }}</small>{% endfor %}
+					</label>
+				{% endfor %}
+				<button class="button" type="submit">Find my order</button>
+			</form>
+			{% if lookup_message %}<p class="order-tracking-message" role="alert">{{ lookup_message }}</p>{% endif %}
+			<p class="order-tracking-account-prompt">Have an account? <a href="{% url 'login' %}">Sign in</a> to see your orders, or <a href="{% url 'signup' %}">create an account</a>.</p>
+		</div>
+		{% endif %}
+		{% if lookup_order %}
+			<article class="order-tracking-card order-tracking-result">
+				<header class="order-tracking-heading">
+					<div>
+						<p class="eyebrow">ORDER {{ lookup_order.order_reference|default:lookup_order.pk }}</p>
+						<h2>Placed {{ lookup_order.created_at|date:'j F Y' }}</h2>
+					</div>
+					<span class="order-tracking-status">{{ lookup_order.get_status_display }}</span>
+				</header>
+				{% include 'shop/_order_journey.html' with order=lookup_order %}
+			</article>
+			<p class="order-tracking-pagination">
+				<a class="button outline" href="{% url 'order_tracking' %}">Track another order</a>
+			</p>
+		{% endif %}
+	{% endif %}
+</section>
+{% endblock %}

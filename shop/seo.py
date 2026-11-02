@@ -24,7 +24,7 @@ def is_indexable(request):
     match = getattr(request, 'resolver_match', None)
     if not match or match.url_name not in PUBLIC_VIEWS:
         return False
-    return not (match.url_name == 'catalogue' and any(request.GET.get(key) for key in ['q', 'collection', 'sort']))
+    return not (match.url_name == 'catalogue' and any(request.GET.get(key) for key in ['q', 'collection', 'sort', 'category', 'tags']))
 
 
 def json_ld(data):
@@ -93,7 +93,7 @@ class SeoHeadersMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         if (response.get('Content-Type', '').startswith('text/html') and not is_indexable(request)) or request.path.startswith(PRIVATE_PREFIXES) or response.status_code >= 400:
-            response['X-Robots-Tag'] = 'noindex, follow'
+            response.setdefault('X-Robots-Tag', 'noindex, follow')
         return response
 
 

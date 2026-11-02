@@ -3,9 +3,34 @@
 {% block content %}
 <section class="page-head"><p class="eyebrow">CONTROL PANEL / DELIVERY</p><h1>Delivery pricing</h1><p>Manage delivery methods, prices and free-delivery thresholds.</p></section>
 {% include 'shop/_control_nav.html' %}
+<section class="section management-layout" id="delivery-regions">
+  <div class="management-form">
+    <p class="eyebrow">DESTINATION GROUPS</p>
+    <h2>{% if editing_region %}Edit delivery group{% else %}Add delivery group{% endif %}</h2>
+    <p>Group destinations so each one offers its own delivery methods and prices &mdash; for example UK, Europe, International and Others. Mark one group as the catch-all for any country you have not listed.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_region">{% if editing_region %}<input type="hidden" name="region_id" value="{{ editing_region.pk }}">{% endif %}{{ region_form.as_p }}<button class="button" type="submit">Save delivery group</button>{% if editing_region %}<a class="button outline" href="{% url 'control_delivery' %}#delivery-regions">Cancel</a>{% endif %}</form>
+  </div>
+  <div class="management-list">
+    <h2>Delivery groups</h2>
+    {% for region in regions %}
+      <div class="management-row"><div><strong>{{ region.name }}{% if region.is_default %} · Catch-all{% endif %}</strong><span>{{ region.country_list|length }} countr{{ region.country_list|length|pluralize:"y,ies" }} · {{ region.delivery_options.count }} method{{ region.delivery_options.count|pluralize }}</span></div><span>{% if region.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit_region={{ region.pk }}#delivery-regions">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_region"><input type="hidden" name="region_id" value="{{ region.pk }}"><button type="submit">Remove</button></form></div>
+    {% empty %}<p>No delivery groups yet. Add one to offer different delivery methods by destination.</p>{% endfor %}
+  </div>
+</section>
 <section class="section management-layout">
   <div class="management-form"><h2>{% if editing %}Edit delivery option{% else %}Add delivery option{% endif %}</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">Save delivery option</button>{% if editing %}<a class="button outline" href="{% url 'control_delivery' %}">Cancel</a>{% endif %}</form></div>
-  <div class="management-list"><h2>Delivery methods</h2>{% for option in options %}<div class="management-row"><div><strong>{{ option.label }}</strong><span>{{ option.code }} · £{{ option.price }}{% if option.free_over %} · Free over £{{ option.free_over }}{% endif %}</span></div><span>{% if option.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit={{ option.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="delivery_id" value="{{ option.pk }}"><button type="submit">Remove</button></form></div>{% empty %}<p>No delivery methods yet.</p>{% endfor %}</div>
+  <div class="management-list">
+    <h2>Delivery methods</h2>
+    {% for group in delivery_groups %}
+      {% if group.options or group.region %}
+        <h3 class="delivery-group-heading">{% if group.region %}{{ group.region.name }}{% if group.region.is_default %} · Catch-all{% endif %}{% else %}All destinations (ungrouped){% endif %}</h3>
+        {% for option in group.options %}
+          <div class="management-row"><div><strong>{{ option.label }}</strong><span>{{ option.code }} · £{{ option.price }}{% if option.transit_time %} · {{ option.transit_time }}{% endif %}{% if option.free_over %} · Free over £{{ option.free_over }}{% endif %}</span></div><span>{% if option.active %}Active{% else %}Hidden{% endif %}</span><a href="?edit={{ option.pk }}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="delivery_id" value="{{ option.pk }}"><button type="submit">Remove</button></form></div>
+        {% empty %}<p class="delivery-group-empty">No delivery methods in this group yet.</p>{% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% if not options %}<p>No delivery methods yet.</p>{% endif %}
+  </div>
 </section>
 <section class="section management-layout shipping-configuration">
   <div class="management-form">

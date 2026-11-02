@@ -5,8 +5,14 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import SimpleTestCase, TestCase
 
 from .forms import CheckoutForm, get_delivery_options_for_country
-from .models import DeliveryOption, ShippingPackaging, ShippingRate
-from .shipping import matching_shipping_rate, parcel_metrics
+from .models import DeliveryOption, DeliveryRegion, ShippingPackaging, ShippingRate
+from .shipping import (
+    checkout_shipping_configuration,
+    delivery_region_for_country,
+    matching_shipping_rate,
+    parcel_metrics,
+    shipping_delivery_summary,
+)
 from .views import checkout_destination_country, delivery_cost
 
 
@@ -117,9 +123,11 @@ class CheckoutAddressTests(TestCase):
     def billing_data(self):
         return {
             'email': 'customer@example.com',
+            'phone_country': 'GB', 'phone': '7123456789',
             'shipping_method': 'standard_uk',
             'billing_name': 'Test Customer',
-            'billing_address1': '10 High Street',
+            'billing_house_flat': '10',
+            'billing_address1': 'High Street',
             'billing_city': 'London',
             'billing_postcode': 'SW1A 1AA',
             'billing_country': 'United Kingdom',
@@ -138,6 +146,7 @@ class CheckoutAddressTests(TestCase):
         form = CheckoutForm(data, user=AnonymousUser())
 
         self.assertFalse(form.is_valid())
+        self.assertIn('shipping_house_flat', form.errors)
         self.assertIn('shipping_address1', form.errors)
 
     def test_delivery_methods_are_restricted_to_destination_rates(self):
@@ -156,7 +165,8 @@ class CheckoutAddressTests(TestCase):
             'ship_to_different_address': 'on',
             'shipping_method': 'international',
             'shipping_name': 'Test Customer',
-            'shipping_address1': '25 Rue Example',
+            'shipping_house_flat': '25',
+            'shipping_address1': 'Rue Example',
             'shipping_city': 'Paris',
             'shipping_postcode': '75001',
             'shipping_country': 'France',
@@ -187,3 +197,128 @@ class CheckoutAddressTests(TestCase):
 
         uk_choices = get_delivery_options_for_country('United Kingdom')
         self.assertEqual([code for code, _ in uk_choices], ['standard_uk', 'express_uk'])
+
+class DeliveryRegionGroupingTests(TestCase):
+    def setUp(self):
+        self.uk = DeliveryRegion.objects.get(name='UK')
+        self.europe = DeliveryRegion.objects.get(name='Europe')
+        self.international = DeliveryRegion.objects.get(name='International')
+        self.uk_standard = DeliveryOption.objects.create(
+            code='standard_uk', label='UK Standard', transit_time='3-5 business days',
+            price=Decimal('3.99'), region=self.uk, sort_order=1,
+        )
+        self.uk_express = DeliveryOption.objects.create(
+            code='express_uk', label='UK Express', transit_time='1-2 business days',
+            price=Decimal('9.95'), region=self.uk, sort_order=2,
+        )
+        self.eu_standard = DeliveryOption.objects.create(
+            code='standard_eu', label='Europe Standard', transit_time='7-15 business days',
+            price=Decimal('9.99'), region=self.europe, sort_order=3,
+        )
+        self.worldwide = DeliveryOption.objects.create(
+            code='international', label='International Standard', transit_time='10-25 business days',
+            price=Decimal('11.99'), region=self.international, sort_order=4,
+        )
+
+    def test_default_groups_are_seeded_with_a_single_catch_all(self):
+        self.assertEqual(
+            [region.name for region in DeliveryRegion.objects.all()],
+            ['UK', 'USA', 'Europe', 'International'],
+        )
+        self.assertEqual([region.name for region in DeliveryRegion.objects.filter(is_default=True)], ['International'])
+        self.assertIn('United Kingdom', self.uk.country_list())
+        self.assertIn('France', self.europe.country_list())
+
+    def test_country_resolves_to_its_group_and_unlisted_countries_use_the_catch_all(self):
+        self.assertEqual(delivery_region_for_country('United Kingdom'), self.uk)
+        self.assertEqual(delivery_region_for_country('france'), self.europe)
+        self.assertEqual(delivery_region_for_country('United States'), DeliveryRegion.objects.get(name='USA'))
+        self.assertEqual(delivery_region_for_country('Sri Lanka'), self.international)
+        self.assertIsNone(delivery_region_for_country(''))
+
+    def test_checkout_offers_only_the_methods_grouped_for_the_destination(self):
+        self.assertEqual(
+            [code for code, _ in get_delivery_options_for_country('United Kingdom')],
+            ['standard_uk', 'express_uk'],
+        )
+        self.assertEqual([code for code, _ in get_delivery_options_for_country('France')], ['standard_eu'])
+        self.assertEqual([code for code, _ in get_delivery_options_for_country('Sri Lanka')], ['international'])
+
+    def test_grouped_methods_are_priced_from_their_own_record(self):
+        self.assertEqual(delivery_cost('standard_uk', Decimal('0'), 'United Kingdom'), Decimal('3.99'))
+        self.assertEqual(delivery_cost('standard_eu', Decimal('0'), 'France'), Decimal('9.99'))
+        self.assertEqual(delivery_cost('international', Decimal('0'), 'Sri Lanka'), Decimal('11.99'))
+
+    def test_free_over_threshold_still_applies_to_grouped_methods(self):
+        self.uk_standard.free_over = Decimal('100.00')
+        self.uk_standard.save(update_fields=['free_over'])
+
+        self.assertEqual(delivery_cost('standard_uk', Decimal('150.00'), 'United Kingdom'), Decimal('0.00'))
+
+    def test_hidden_methods_are_not_offered(self):
+        self.uk_express.active = False
+        self.uk_express.save(update_fields=['active'])
+
+        self.assertEqual(
+            [code for code, _ in get_delivery_options_for_country('United Kingdom')],
+            ['standard_uk'],
+        )
+
+    def test_checkout_configuration_exposes_groups_for_the_browser(self):
+        config = checkout_shipping_configuration()
+        groups = {region['name']: region for region in config['regions']}
+
+        self.assertEqual([service['code'] for service in groups['Europe']['services']], ['standard_eu'])
+        self.assertEqual(groups['Europe']['services'][0]['transit'], '7-15 business days')
+        self.assertTrue(groups['International']['is_default'])
+
+    def test_shipping_summary_prefers_configured_groups(self):
+        summary = shipping_delivery_summary()
+
+        self.assertEqual(
+            [(row['label'], row['transit'], row['price']) for row in summary],
+            [
+                ('UK Standard', '3-5 business days', Decimal('3.99')),
+                ('UK Express', '1-2 business days', Decimal('9.95')),
+                ('Europe Standard', '7-15 business days', Decimal('9.99')),
+                ('International Standard', '10-25 business days', Decimal('11.99')),
+            ],
+        )
+
+    def test_parcel_rate_bands_still_override_the_group_price(self):
+        ShippingPackaging.objects.create(
+            packaging_weight_grams=0,
+            extra_length_cm=Decimal('0'), extra_width_cm=Decimal('0'), extra_height_cm=Decimal('0'),
+        )
+        ShippingRate.objects.create(
+            country='France', service=self.eu_standard, max_weight_grams=500,
+            max_length_cm=Decimal('30'), max_width_cm=Decimal('20'), max_height_cm=Decimal('10'),
+            price=Decimal('7.50'),
+        )
+        items = [{'product': boxed_product(), 'quantity': 1}]
+
+        self.assertEqual(delivery_cost('standard_eu', Decimal('0'), 'France', items), Decimal('7.50'))
+
+
+class UngroupedDeliveryFallbackTests(TestCase):
+    def setUp(self):
+        DeliveryOption.objects.create(code='standard_uk', label='UK Standard', price=Decimal('3.99'), sort_order=1)
+        DeliveryOption.objects.create(code='express_uk', label='UK Express', price=Decimal('9.95'), sort_order=2)
+        DeliveryOption.objects.create(code='international', label='International', price=Decimal('11.99'), sort_order=3)
+
+    def test_methods_without_a_group_keep_the_existing_destination_tiers(self):
+        self.assertEqual(delivery_cost('international', Decimal('0'), 'France'), Decimal('9.99'))
+        self.assertEqual([code for code, _ in get_delivery_options_for_country('France')], ['international'])
+
+    def test_summary_falls_back_to_the_standard_tiers(self):
+        summary = shipping_delivery_summary()
+
+        self.assertEqual(
+            [row['label'] for row in summary],
+            [
+                'UK Standard Delivery',
+                'USA Standard Delivery (Royal Mail)',
+                'Europe Standard Delivery (Royal Mail)',
+                'Canada & International Standard Delivery (Royal Mail)',
+            ],
+        )

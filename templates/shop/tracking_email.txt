@@ -4,7 +4,8 @@ Your Misha Island Heritage order {{ order.order_reference|default:order.pk }} ha
 
 Tracking number: {{ order.tracking_number }}
 Delivery method: {{ order.get_delivery_method_display }}
-{% if order.tracking_url %}Track your order: {{ order.tracking_url }}{% endif %}
+View your order progress - click or open this link:
+{{ tracking_page_url }}
 
 We will use this tracking number to identify your shipment. Thank you for shopping with Misha Island Heritage.
 

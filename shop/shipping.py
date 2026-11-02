@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from .models import ShippingPackaging, ShippingRate
+from .models import DeliveryOption, DeliveryRegion, ShippingPackaging, ShippingRate
 
 
 EUROPEAN_COUNTRIES = frozenset({
@@ -18,27 +18,59 @@ SHIPPING_TIERS = {
         'countries': ['United Kingdom'],
         'service_code': 'standard_uk',
         'label': 'UK Standard Delivery',
+        'transit': '3-5 business days',
         'price': '3.99',
     },
     'usa': {
         'countries': ['United States'],
         'service_code': 'international',
         'label': 'USA Standard Delivery (Royal Mail)',
+        'transit': '7-15 business days',
         'price': '11.99',
     },
     'europe': {
         'countries': sorted(EUROPEAN_COUNTRIES),
         'service_code': 'international',
         'label': 'Europe Standard Delivery (Royal Mail)',
+        'transit': '7-15 business days',
         'price': '9.99',
     },
     'international': {
         'countries': [],
         'service_code': 'international',
         'label': 'Canada & International Standard Delivery (Royal Mail)',
+        'transit': '10-25 business days',
         'price': '11.99',
     },
 }
+
+
+DEFAULT_DELIVERY_REGIONS = [
+    {'name': 'UK', 'countries': ['United Kingdom'], 'is_default': False, 'sort_order': 1},
+    {'name': 'USA', 'countries': ['United States'], 'is_default': False, 'sort_order': 2},
+    {'name': 'Europe', 'countries': sorted(EUROPEAN_COUNTRIES), 'is_default': False, 'sort_order': 3},
+    {'name': 'International', 'countries': [], 'is_default': True, 'sort_order': 4},
+]
+
+
+def delivery_regions():
+    return list(DeliveryRegion.objects.filter(active=True).prefetch_related('delivery_options'))
+
+
+def delivery_region_for_country(country, regions=None):
+    """Return the configured delivery region a destination country belongs to.
+
+    Falls back to the region flagged as the catch-all group when the country is
+    not listed explicitly. Returns ``None`` when no country is known or no
+    region groups are configured.
+    """
+    regions = delivery_regions() if regions is None else regions
+    if not regions or not (country or '').strip():
+        return None
+    for region in regions:
+        if region.matches(country):
+            return region
+    return next((region for region in regions if region.is_default), None)
 
 
 def shipping_tier_for_country(country):
@@ -55,6 +87,9 @@ def shipping_tier_for_country(country):
 
 
 def destination_shipping_price(country, service_code):
+    option = DeliveryOption.objects.filter(code=service_code).first()
+    if option is not None and option.region_id is not None:
+        return None
     tier = shipping_tier_for_country(country)
     if tier is None:
         return None
@@ -66,11 +101,61 @@ def destination_shipping_price(country, service_code):
 
 def checkout_shipping_configuration():
     return {
+        'regions': [
+            {
+                'name': region.name,
+                'countries': region.country_list(),
+                'is_default': region.is_default,
+                'services': [
+                    {
+                        'code': option.code,
+                        'label': option.label,
+                        'transit': option.transit_time,
+                        'price': str(option.price),
+                        'free_over': str(option.free_over) if option.free_over is not None else None,
+                    }
+                    for option in region.delivery_options.all()
+                    if option.active
+                ],
+            }
+            for region in delivery_regions()
+        ],
         'tiers': [
             {**rule, 'tier': tier}
             for tier, rule in SHIPPING_TIERS.items()
-        ]
+        ],
     }
+
+
+def shipping_delivery_summary():
+    """Delivery methods and prices for customer-facing shipping information.
+
+    Uses the configured region groups when an administrator has assigned
+    delivery methods to them, and otherwise falls back to the standard
+    destination tiers that pricing already uses.
+    """
+    rows = [
+        {
+            'label': option.label,
+            'transit': option.transit_time,
+            'price': option.price,
+            'region': region.name,
+        }
+        for region in delivery_regions()
+        for option in region.delivery_options.all()
+        if option.active
+    ]
+    if rows:
+        return rows
+    return [
+        {
+            'label': rule['label'],
+            'transit': rule['transit'],
+            'price': Decimal(rule['price']),
+            'region': tier,
+        }
+        for tier, rule in SHIPPING_TIERS.items()
+    ]
 
 
 def parcel_metrics(items, packaging=None):

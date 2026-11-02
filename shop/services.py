@@ -1,12 +1,12 @@
 from decimal import Decimal
 import logging
 from datetime import datetime, timezone as datetime_timezone
-from email.mime.image import MIMEImage
 from io import BytesIO
 from ipaddress import ip_address as parse_ip_address
 from pathlib import Path
 from smtplib import SMTPException
 from urllib.parse import quote
+from xml.sax.saxutils import escape
 
 import requests
 import stripe
@@ -27,6 +27,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import IPGeolocation
+from .order_tracking import private_order_tracking_url
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,9 @@ def send_order_confirmation(order_id):
         return False
     context = {
         'order': order,
+        'shop_url': settings.SITE_URL,
         'logo_url': f'{settings.SITE_URL}/static/images/mih_logo.png',
+        'tracking_page_url': private_order_tracking_url(order),
     }
     subject = f'Order from Misha Island Heritage #{order.order_reference or order.pk}'
     message = EmailMultiAlternatives(
@@ -140,13 +143,6 @@ def send_order_confirmation(order_id):
         bcc=['mishaislandheritage@gmail.com'],
     )
     message.attach_alternative(render_to_string('shop/order_confirmation_email.html', context), 'text/html')
-
-    logo_path = Path(settings.BASE_DIR) / 'static' / 'images' / 'mih_logo.png'
-    if logo_path.exists():
-        logo = MIMEImage(logo_path.read_bytes())
-        logo.add_header('Content-ID', '<misha-logo>')
-        logo.add_header('Content-Disposition', 'inline', filename='mih_logo.png')
-        message.attach(logo)
 
     message.attach(
         f'order-{order.order_reference or order.pk}.pdf',
@@ -165,7 +161,9 @@ def send_tracking_email(order_id):
         return False
     context = {
         'order': order,
+        'shop_url': settings.SITE_URL,
         'logo_url': f'{settings.SITE_URL}/static/images/mih_logo.png',
+        'tracking_page_url': private_order_tracking_url(order),
     }
     subject = f'Your Misha Island Heritage order has shipped | {order.order_reference or order.pk}'
     message = EmailMultiAlternatives(
@@ -175,13 +173,8 @@ def send_tracking_email(order_id):
         [order.email],
     )
     message.attach_alternative(render_to_string('shop/tracking_email.html', context), 'text/html')
-    logo_path = Path(settings.BASE_DIR) / 'static' / 'images' / 'mih_logo.png'
-    if logo_path.exists():
-        logo = MIMEImage(logo_path.read_bytes())
-        logo.add_header('Content-ID', '<misha-logo>')
-        logo.add_header('Content-Disposition', 'inline', filename='mih_logo.png')
-        message.attach(logo)
-    message.send(fail_silently=False)
+    if message.send(fail_silently=False) != 1:
+        raise RuntimeError('The email backend did not accept the dispatch email.')
     return True
 
 
@@ -287,12 +280,14 @@ def build_order_pdf(order):
     for item in order.items.all():
         product = item.product
         details = f'SKU: {item.sku}'
+        if item.selection_description:
+            details += f'<br/>{escape(item.selection_description)}'
         if product.description:
             details += f'<br/>{product.description[:180]}'
         if product.material:
             details += f'<br/>Material: {product.material}'
         if product.dimensions:
-            details += f'<br/>Dimensions: {product.dimensions}'
+            details += f'<br/>Pendant dimensions: {product.dimensions}'
         item_rows.append([
             Paragraph(item.product_name, styles['Small']),
             Paragraph(details, styles['Small']),
@@ -329,6 +324,8 @@ def build_order_pdf(order):
     story.append(Spacer(1, 8 * mm))
     address = '<br/>'.join(filter(None, [order.shipping_name, order.shipping_address1, order.shipping_address2, order.shipping_city, order.shipping_postcode, order.shipping_country]))
     story.append(Paragraph(f'<b>Delivery address</b><br/>{address}', styles['BodyText']))
+    if order.phone:
+        story.append(Paragraph(f'<b>Contact phone:</b> {escape(order.phone)}', styles['BodyText']))
     story.append(Spacer(1, 10 * mm))
     story.append(Paragraph('Thank you for shopping with MISHA Island Heritage.', styles['BodyText']))
     document.build(story)
@@ -387,13 +384,13 @@ def create_stripe_checkout(order, request):
     stripe.api_key = settings.STRIPE_SECRET_KEY
     line_items = []
     for item in order.items.select_related('product'):
+        product_data = {'name': item.product_name, 'metadata': {'sku': item.sku}}
+        if item.selection_description:
+            product_data['description'] = item.selection_description
         line_items.append({
             'price_data': {
                 'currency': settings.STRIPE_CURRENCY,
-                'product_data': {
-                    'name': item.product_name,
-                    'metadata': {'sku': item.sku},
-                },
+                'product_data': product_data,
                 'unit_amount': int((item.unit_price * 100).quantize(Decimal('1'))),
             },
             'quantity': item.quantity,
@@ -409,15 +406,15 @@ def create_stripe_checkout(order, request):
             'quantity': 1,
         })
 
-    base = settings.SITE_URL.rstrip('/')
     session = stripe.checkout.Session.create(
         mode='payment',
         line_items=line_items,
         customer_email=order.email,
         metadata={'order_id': str(order.pk)},
         payment_intent_data={'metadata': {'order_id': str(order.pk)}},
-        success_url=f'{base}{reverse("checkout_success")}?session_id={{CHECKOUT_SESSION_ID}}',
-        cancel_url=f'{base}{reverse("checkout")}',
+        idempotency_key=f'checkout-order-{order.pk}',
+        success_url=f'{request.build_absolute_uri(reverse("checkout_success"))}?session_id={{CHECKOUT_SESSION_ID}}',
+        cancel_url=f'{request.build_absolute_uri(reverse("checkout"))}?payment_cancelled=1',
     )
 
     order.stripe_session_id = session.id

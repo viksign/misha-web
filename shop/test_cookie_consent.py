@@ -46,9 +46,39 @@ class CookieConsentTests(SimpleTestCase):
 
     @patch('shop.middleware.AnalyticsEvent.objects.create')
     def test_page_views_are_recorded_after_analytics_consent(self, create_event):
-        request = RequestFactory().get('/', HTTP_COOKIE=f'misha_cookie_consent={quote("{\"analytics\": true, \"advertising\": false}")}')
+        request = RequestFactory().get(
+            '/',
+            HTTP_COOKIE=f'misha_cookie_consent={quote("{\"analytics\": true, \"advertising\": false}")}',
+            HTTP_X_REAL_IP='203.0.113.45',
+            HTTP_CF_IPCOUNTRY='GB',
+            HTTP_CF_IPCITY='St.%20John%27s',
+            HTTP_CF_REGION='England',
+            HTTP_CF_IPLATITUDE='51.5072',
+            HTTP_CF_IPLONGITUDE='-0.1276',
+        )
         request.user = AnonymousUser()
 
         AnalyticsMiddleware(lambda _request: HttpResponse('ok'))(request)
 
         create_event.assert_called_once()
+        self.assertEqual(create_event.call_args.kwargs['ip_address'], '203.0.113.45')
+        self.assertEqual(create_event.call_args.kwargs['country'], 'United Kingdom')
+        self.assertEqual(create_event.call_args.kwargs['city'], "St. John's")
+        self.assertEqual(create_event.call_args.kwargs['region'], 'England')
+        self.assertEqual(create_event.call_args.kwargs['latitude'], 51.5072)
+        self.assertEqual(create_event.call_args.kwargs['longitude'], -0.1276)
+
+    @patch('shop.middleware.AnalyticsEvent.objects.create')
+    def test_invalid_cloudflare_coordinates_are_not_recorded(self, create_event):
+        request = RequestFactory().get(
+            '/',
+            HTTP_COOKIE=f'misha_cookie_consent={quote("{\"analytics\": true}")}',
+            HTTP_CF_IPLATITUDE='nan',
+            HTTP_CF_IPLONGITUDE='181',
+        )
+        request.user = AnonymousUser()
+
+        AnalyticsMiddleware(lambda _request: HttpResponse('ok'))(request)
+
+        self.assertIsNone(create_event.call_args.kwargs['latitude'])
+        self.assertIsNone(create_event.call_args.kwargs['longitude'])

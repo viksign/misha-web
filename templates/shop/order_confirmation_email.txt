@@ -4,9 +4,13 @@ Thank you for choosing Misha Island Heritage. We have received your order and ar
 
 Order reference: {{ order.order_reference|default:order.pk }}
 Order status: {{ order.get_status_display }}
+{% if order.phone %}Contact phone: {{ order.phone }}
+{% endif %}
 
 Order summary:
 {% for item in order.items.all %}- {{ item.quantity }} x {{ item.product_name }} at {{ order.currency }} {{ item.unit_price }}
+{% if item.selection_description %}  {{ item.selection_description }}
+{% endif %}
 {% endfor %}
 Delivery cost: {{ order.currency }} {{ order.delivery_cost }}
 Total: {{ order.currency }} {{ order.total }}
@@ -26,5 +30,6 @@ Delivery address:
 {{ order.shipping_country }}
 
 We will email you again when your order has been dispatched with the tracking details. A PDF copy of your order summary is included for your records.
+Track your order progress: {{ tracking_page_url }}
 
 MISHA Island Heritage

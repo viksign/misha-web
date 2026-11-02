@@ -4,14 +4,16 @@
   <div style="max-width:680px;margin:0 auto;padding:28px 16px;">
     <div style="background:#ffffff;border:1px solid #dbe4e0;">
       <div style="padding:24px;text-align:center;border-bottom:4px solid #c6a15b;">
-        <a href="{{ logo_url }}" style="display:inline-block;"><img src="cid:misha-logo" alt="MISHA Island Heritage" width="150" style="display:block;width:150px;max-width:60%;height:auto;margin:0 auto;border:0;"></a>
+        <a href="{{ shop_url }}" style="display:inline-block;"><img src="{{ logo_url }}" alt="MISHA Island Heritage" width="150" style="display:block;width:150px;max-width:60%;height:auto;margin:0 auto;border:0;"></a>
       </div>
       <div style="padding:30px 28px;">
         <p style="margin:0 0 8px;color:#8a6a32;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Order confirmation</p>
         <h1 style="margin:0 0 18px;color:#183b3a;font-size:28px;font-weight:600;">Thank you for your order</h1>
         <p>Hello {{ order.shipping_name }},</p>
+        {% if order.phone %}<p>Contact phone: {{ order.phone }}</p>{% endif %}
         <p>Thank you for choosing Misha Island Heritage. We have received your order and are now processing it with care.</p>
         <p>We will email you again when your order has been dispatched with the tracking details. A PDF copy of your order summary is also included for your records.</p>
+        <p><a href="{{ tracking_page_url }}" style="color:#183b3a;font-weight:bold;">Track your order progress</a></p>
         <table role="presentation" style="width:100%;margin:22px 0;border-collapse:collapse;background:#f5f8f6;">
           <tr><td style="padding:12px;font-size:13px;color:#60716d;">Order reference</td><td style="padding:12px;text-align:right;font-weight:bold;color:#183b3a;">{{ order.order_reference|default:order.pk }}</td></tr>
           <tr><td style="padding:12px;font-size:13px;color:#60716d;">Order date</td><td style="padding:12px;text-align:right;">{{ order.created_at|date:'j F Y' }}</td></tr>
@@ -23,7 +25,7 @@
           {% for item in order.items.all %}
           <tr style="border-bottom:1px solid #dbe4e0;vertical-align:top;">
             <td style="padding:12px 8px;"><strong>{{ item.product_name }}</strong><br><span style="color:#60716d;">SKU: {{ item.sku }}</span></td>
-            <td style="padding:12px 8px;color:#60716d;">{% if item.product.description %}{{ item.product.description|truncatechars:160 }}<br>{% endif %}{% if item.product.material %}Material: {{ item.product.material }}<br>{% endif %}{% if item.product.dimensions %}Dimensions: {{ item.product.dimensions }}{% endif %}</td>
+            <td style="padding:12px 8px;color:#60716d;">{% if item.selection_description %}{{ item.selection_description }}<br>{% endif %}{% if item.product.description %}{{ item.product.description|truncatechars:160 }}<br>{% endif %}{% if item.product.material %}Material: {{ item.product.material }}<br>{% endif %}{% if item.product.dimensions %}Pendant dimensions: {{ item.product.dimensions }}{% endif %}</td>
             <td style="padding:12px 8px;text-align:center;">{{ item.quantity }}</td>
             <td style="padding:12px 8px;text-align:right;white-space:nowrap;">{{ order.currency }} {{ item.line_total|floatformat:2 }}</td>
           </tr>

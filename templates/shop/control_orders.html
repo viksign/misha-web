@@ -1,9 +1,10 @@
 {% extends 'base.html' %}
 {% block title %}Orders | Control Panel{% endblock %}
 {% block content %}
-<section class="page-head"><p class="eyebrow">CONTROL PANEL / FULFILMENT</p><h1>Orders</h1><p>Review orders and update fulfilment or payment status.</p></section>
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / FULFILMENT</p><h1>Orders</h1><p>Review orders and update fulfilment or payment status. Unpaid checkout attempts are not confirmed sales and must not be fulfilled. Order status and payment status are separate.</p></section>
 {% include 'shop/_control_nav.html' %}
 <section class="section orders-management">
+  {% if editing %}<p role="status">Reviewing order {{ editing.order_reference|default:editing.pk }} from a direct link. <a href="{% url 'control_orders' %}">View all orders</a></p>{% endif %}
   <form class="order-search-bar" method="get">
     <fieldset class="order-status-filters">
       <legend>Order status</legend>
@@ -23,8 +24,14 @@
       <option value="newest"{% if sort == 'newest' %} selected{% endif %}>Newest first</option>
       <option value="oldest"{% if sort == 'oldest' %} selected{% endif %}>Oldest first</option>
     </select>
+    <label for="order-payment-scope">Payment confirmation</label>
+    <select id="order-payment-scope" name="payment_scope">
+      <option value="all"{% if payment_scope == 'all' %} selected{% endif %}>All orders and checkout attempts</option>
+      <option value="paid"{% if payment_scope == 'paid' %} selected{% endif %}>Payment confirmed (including refunds)</option>
+      <option value="unpaid"{% if payment_scope == 'unpaid' %} selected{% endif %}>Unpaid checkout attempts</option>
+    </select>
     <button class="button" type="submit">Apply</button>
-    {% if query or selected_statuses or date_range_changed %}<a class="button outline" href="{% url 'control_orders' %}?sort={{ sort }}">Reset filters</a>{% endif %}
+    {% if query or selected_statuses or date_range_changed or payment_scope != 'all' %}<a class="button outline" href="{% url 'control_orders' %}?sort={{ sort }}">Reset filters</a>{% endif %}
   </form>
 
   <form method="post" class="orders-table-form">
@@ -46,16 +53,16 @@
           {% for order in orders %}
             <tr class="order-table-row">
               <td><input type="checkbox" name="order_ids" value="{{ order.pk }}" data-order-checkbox aria-label="Select order {{ order.order_reference|default:order.pk }}"></td>
-              <td><strong>{{ order.order_reference|default:order.pk }}</strong></td>
+              <td><strong>{{ order.order_reference|default:order.pk }}</strong>{% if order.is_unpaid_checkout %}<small>Unpaid checkout attempt</small>{% endif %}</td>
               <td><span>{{ order.email }}</span><small>{{ order.shipping_name }}</small></td>
               <td>{{ order.shipping_postcode }}</td>
               <td><time datetime="{{ order.created_at|date:'c' }}">{{ order.created_at|date:'j M Y, H:i T' }}</time></td>
               <td>£{{ order.total }}</td>
               <td><span class="order-status status-{{ order.status }}">{{ order.get_status_display }}</span></td>
               <td>{{ order.processor_name }}</td>
-              <td>{{ order.get_payment_status_display }}</td>
+              <td><span class="order-status status-{{ order.payment_status }}">{{ order.get_payment_status_display }}</span>{% if order.is_unpaid_checkout %}<small>Not confirmed - do not fulfil</small>{% endif %}</td>
               <td>{% if order.status == 'shipped' %}{% if order.tracking_email_sent_at %}<span class="dispatch-email-status is-sent">Sent</span>{% else %}<span class="dispatch-email-status is-pending">Not sent</span>{% endif %}{% else %}<span class="dispatch-email-status">—</span>{% endif %}</td>
-              <td><button class="table-action" type="button" data-order-modal="manage-order-{{ order.pk }}">Manage</button></td>
+              <td><button class="table-action" type="button" data-order-modal="manage-order-{{ order.pk }}"{% if editing.pk == order.pk %} data-order-auto-open{% endif %}>Manage</button></td>
             </tr>
           {% empty %}<tr><td colspan="11">No orders match your search.</td></tr>{% endfor %}
         </tbody>
@@ -76,9 +83,77 @@
     <template id="manage-order-{{ order.pk }}">
       <div class="order-management-modal">
         <div class="modal-heading"><div><p class="eyebrow">ORDER {{ order.order_reference|default:order.pk }}</p><h2>Manage order</h2></div><button class="modal-close" type="button" aria-label="Close order management">×</button></div>
+        <section class="order-management-progress" aria-label="Current order progress">
+          <div class="order-progress-summary">
+            <strong>Order: <span class="order-status status-{{ order.status }}">{{ order.get_status_display }}</span></strong>
+            <strong>Payment: <span class="order-status status-{{ order.payment_status }}">{{ order.get_payment_status_display }}</span></strong>
+            <span>Processing by: {{ order.processor_name }}</span>
+          </div>
+          {% if order.is_unpaid_checkout %}
+            <p role="alert">Payment is not confirmed. Do not fulfil this checkout attempt.</p>
+          {% elif order.status != 'cancelled' and order.status != 'return' %}
+            <ol class="order-progress-steps">
+              {% for step in order.tracking_view.steps %}
+                <li class="is-{{ step.state }}"{% if step.state == 'current' %} aria-current="step"{% endif %}>
+                  <strong>{{ step.label }}</strong><small>{{ step.state_label }}</small>
+                </li>
+              {% endfor %}
+            </ol>
+          {% endif %}
+        </section>
+        <form method="post" class="management-form modal-form order-dispatch-form" data-order-management-form>
+          {% csrf_token %}<input type="hidden" name="order_id" value="{{ order.pk }}">
+          <h3>Update order / dispatch</h3>
+          <p>To dispatch: select <strong>Shipped</strong>, enter the tracking number, then save. Adding a tracking number alone does not change the status.</p>
+          <p class="dispatch-email-status{% if order.tracking_email_sent_at %} is-sent{% else %} is-pending{% endif %}">
+            {% if order.tracking_email_sent_at %}Dispatch email sent: {{ order.tracking_email_sent_at|date:'j M Y, H:i T' }}. Saving again will not resend it.{% else %}Dispatch email not sent. Saving with status Shipped sends the email to the customer.{% endif %}
+          </p>
+          {{ order.management_form.non_field_errors }}
+          <div class="order-dispatch-fields">
+            <p>{{ order.management_form.status.label_tag }}{{ order.management_form.status }}{{ order.management_form.status.errors }}</p>
+            <p>{{ order.management_form.tracking_number.label_tag }}{{ order.management_form.tracking_number }}<span class="helptext">{{ order.management_form.tracking_number.help_text }}</span>{{ order.management_form.tracking_number.errors }}</p>
+            <p>{{ order.management_form.tracking_url.label_tag }}{{ order.management_form.tracking_url }}<span class="helptext">{{ order.management_form.tracking_url.help_text }}</span>{{ order.management_form.tracking_url.errors }}</p>
+          </div>
+          <button class="button" type="submit" data-order-save>Save order</button>
+          <details>
+            <summary>Assignment, payment and order adjustments</summary>
+            {% for field in order.management_form %}
+              {% if field.name != 'status' and field.name != 'tracking_number' and field.name != 'tracking_url' %}
+                <p>{{ field.label_tag }}{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{{ field.errors }}</p>
+              {% endif %}
+            {% endfor %}
+          </details>
+        </form>
+        <section class="shipment-copy-details">
+          <h3>Shipment details / quick copy</h3>
+          <p>Copy individual fields into Royal Mail, or copy a full address. Empty fields are not copied.</p>
+          <div class="shipment-copy-contact">
+            {% include 'shop/_order_copy_field.html' with key='email' label='Customer email' value=order.email %}
+            {% include 'shop/_order_copy_field.html' with key='phone' label='Phone' value=order.phone %}
+          </div>
+          <div class="modal-detail-grid">
+            {% for address in order.copy_addresses %}
+              <section>
+                <h3>{{ address.title }}</h3>
+                {% if address.full_address %}
+                  <textarea id="copy-{{ order.pk }}-{{ address.key }}" aria-label="Full {{ address.title|lower }}" hidden readonly>{{ address.full_address }}</textarea>
+                  <div class="order-copy-field"><button class="button outline" type="button" data-copy-target="copy-{{ order.pk }}-{{ address.key }}" aria-label="Copy full {{ address.title|lower }}">Copy full address</button><span class="copy-feedback" role="status" aria-live="polite"></span></div>
+                {% endif %}
+                {% for field in address.fields %}
+                  {% include 'shop/_order_copy_field.html' with key=field.key label=field.label value=field.value %}
+                {% endfor %}
+              </section>
+            {% endfor %}
+          </div>
+        </section>
           <div class="modal-order-summary">
+            <section>
+              {% if order.is_unpaid_checkout %}<h3>Items in unpaid checkout</h3><p role="alert">Payment is not confirmed. Do not fulfil this checkout attempt.</p>{% else %}<h3>Items to fulfil</h3>{% endif %}
+              {% for item in order.items.all %}<p>{{ item.quantity }} × {{ item.product_name }} ({{ item.sku }}){% if item.selection_description %}<br>{{ item.selection_description }}{% endif %}</p>{% endfor %}
+            </section>
             <table class="modal-summary-table">
               <tr><th scope="row">Customer</th><td>{{ order.email }}<br>{{ order.shipping_name }}</td></tr>
+              <tr><th scope="row">Phone</th><td>{% if order.phone %}<a href="tel:{{ order.phone }}">{{ order.phone }}</a>{% else %}Not provided{% endif %}</td></tr>
               <tr><th scope="row">Order date</th><td>{{ order.created_at|date:'j M Y, H:i' }}</td></tr>
               <tr><th scope="row">Subtotal</th><td>{{ order.currency }} {{ order.subtotal }}</td></tr>
               <tr><th scope="row">Delivery</th><td>{{ order.currency }} {{ order.shipping }}</td></tr>
@@ -86,16 +161,6 @@
               <tr class="summary-total"><th scope="row">Total</th><td><strong>{{ order.currency }} {{ order.total }}</strong></td></tr>
             </table>
             <div class="modal-detail-grid">
-              <section>
-                <h3>Delivery address</h3>
-                <table class="modal-summary-table">
-                  <tr><th scope="row">Name</th><td>{{ order.shipping_name }}</td></tr>
-                  <tr><th scope="row">Address</th><td>{{ order.shipping_address1 }}{% if order.shipping_address2 %}<br>{{ order.shipping_address2 }}{% endif %}</td></tr>
-                  <tr><th scope="row">Town / city</th><td>{{ order.shipping_city }}</td></tr>
-                  <tr><th scope="row">Postcode</th><td>{{ order.shipping_postcode }}</td></tr>
-                  <tr><th scope="row">Country</th><td>{{ order.shipping_country }}</td></tr>
-                </table>
-              </section>
               <section class="payment-panel">
                 <h3>Payment details</h3>
                 <table class="modal-summary-table">
@@ -120,7 +185,6 @@
             {% if order.refund_status %}<table class="modal-summary-table modal-refund-table"><tr><th scope="row">Refund</th><td>{{ order.currency }} {{ order.refunded_amount }} ({{ order.refund_status }})<br>Stripe refund: {{ order.stripe_refund_id }}</td></tr></table>{% endif %}
           </div>
         <div class="order-pdf-link"><label for="order-pdf-{{ order.pk }}">Order PDF link</label><div><input id="order-pdf-{{ order.pk }}" type="text" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'control_order_pdf' order.pk %}"><button class="button outline" type="button" data-copy-target="order-pdf-{{ order.pk }}">Copy link</button><a class="button outline" href="{% url 'control_order_pdf' order.pk %}" target="_blank" rel="noopener">Open PDF</a></div></div>
-        <form method="post" class="management-form modal-form" data-order-management-form>{% csrf_token %}<input type="hidden" name="order_id" value="{{ order.pk }}">{{ order.management_form.as_p }}<button class="button" type="submit" data-order-save>Save order</button></form>
         {% if order.refund_notes %}<section><h3>Refund notes</h3><p>{{ order.refund_notes|linebreaksbr }}</p></section>{% endif %}
         <form method="post" class="management-form modal-form refund-form">{% csrf_token %}<input type="hidden" name="action" value="refund_order"><input type="hidden" name="order_id" value="{{ order.pk }}"><label>Refund amount (leave blank for remaining balance)<input type="number" name="refund_amount" min="0.01" max="{{ order.total }}" step="0.01" placeholder="{{ order.total }}"></label><label>Refund reason<textarea name="refund_notes" rows="3" maxlength="2000" required placeholder="Enter the reason for this refund"></textarea></label><button class="button outline danger" type="submit" onclick="return confirm('Initiate this refund through Stripe?')">Initiate refund</button></form>
       </div>

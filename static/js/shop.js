@@ -1,4 +1,99 @@
 document.addEventListener('DOMContentLoaded', () => {
+	const staffMenu = document.querySelector('.mobile-staff-menu');
+	if (staffMenu) {
+		document.addEventListener('click', (event) => {
+			if (!staffMenu.contains(event.target)) staffMenu.open = false;
+		});
+		document.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape' && staffMenu.open) {
+				staffMenu.open = false;
+				staffMenu.querySelector('summary').focus();
+			}
+		});
+		staffMenu.querySelectorAll('a').forEach((link) => {
+			link.addEventListener('click', () => { staffMenu.open = false; });
+		});
+	}
+	const productPrice = document.querySelector('[data-product-price]');
+	if (productPrice) {
+		const optionSelects = document.querySelectorAll('[data-product-option]');
+		const breakdown = document.querySelector('[data-price-breakdown]');
+		const guidance = document.querySelector('[data-option-guidance]');
+		const guidanceLabel = document.querySelector('[data-option-guidance-label]');
+		const guidanceCopy = document.querySelector('[data-option-guidance-copy]');
+		const money = (pennies) => `£${(pennies / 100).toFixed(2)}`;
+		const updateOptionGuidance = (preferredSelect = null) => {
+			if (!guidance || !guidanceLabel || !guidanceCopy) return;
+			let chosen = null;
+			const selects = preferredSelect ? [preferredSelect, ...optionSelects] : optionSelects;
+			for (const select of selects) {
+				const option = select.selectedOptions[0];
+				if (!option) continue;
+				const kind = (option.dataset.optionKind || '').trim();
+				if (/length|size/i.test(kind)) {
+					chosen = { kind, text: (option.dataset.optionDescription || '').trim() };
+					break;
+				}
+			}
+			if (!chosen || !chosen.text) {
+				guidance.hidden = true;
+				guidanceLabel.textContent = '';
+				guidanceCopy.textContent = '';
+				return;
+			}
+			guidanceLabel.textContent = `${chosen.kind} recommendation`;
+			guidanceCopy.textContent = chosen.text;
+			guidance.hidden = false;
+		};
+		const updateProductPrice = (preferredSelect = null) => {
+			const basePennies = Math.round(Number(productPrice.dataset.basePrice) * 100);
+			let extras = 0;
+			const extraLabels = [];
+			optionSelects.forEach((select) => {
+				const option = select.selectedOptions[0];
+				const cost = Math.round(Number(option.dataset.additionalCost || 0) * 100);
+				extras += cost;
+				if (cost) extraLabels.push(`${option.textContent.split(' — ')[0]} +${money(cost)}`);
+			});
+			productPrice.textContent = money(basePennies + extras);
+			if (breakdown) {
+				breakdown.hidden = !extras;
+				breakdown.textContent = extras ? `Base price ${money(basePennies)} · ${extraLabels.join(' · ')}` : '';
+			}
+			updateOptionGuidance(preferredSelect);
+		};
+		optionSelects.forEach((select) => select.addEventListener('change', () => updateProductPrice(select)));
+		updateProductPrice();
+	}
+	document.querySelectorAll('[data-option-manager]').forEach((manager) => {
+		const totalForms = manager.querySelector('[name="options-TOTAL_FORMS"]');
+		const rows = manager.querySelector('[data-option-rows]');
+		const emptyMessage = manager.querySelector('[data-option-empty]');
+		const kindOf = (row) => row.querySelector('[name$="-kind"]').value.trim().replace(/\s+/g, ' ').toLowerCase();
+		manager.querySelector('[data-option-add]').addEventListener('click', () => {
+			const index = Number(totalForms.value);
+			const template = manager.querySelector('[data-option-template]');
+			rows.insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__prefix__', String(index)));
+			totalForms.value = String(index + 1);
+			const row = rows.lastElementChild;
+			const previous = row.previousElementSibling;
+			if (previous) row.querySelector('[name$="-kind"]').value = previous.querySelector('[name$="-kind"]').value;
+			if (emptyMessage) emptyMessage.hidden = true;
+			row.querySelector(previous ? '[name$="-label"]' : '[name$="-kind"]').focus();
+		});
+		manager.addEventListener('change', (event) => {
+			if (!event.target.matches('[name$="-is_default"]') || !event.target.checked) return;
+			const row = event.target.closest('[data-option-row]');
+			const kind = kindOf(row);
+			rows.querySelectorAll('[data-option-row]').forEach((other) => {
+				if (other !== row && kindOf(other) === kind) {
+					other.querySelector('[name$="-is_default"]').checked = false;
+				}
+			});
+			row.querySelector('[name$="-additional_cost"]').value = '0.00';
+		});
+	});
+
 	const cookieNotice = document.querySelector('[data-cookie-notice]');
 	const cookieSettings = cookieNotice && cookieNotice.querySelector('[data-cookie-settings]');
 	const analyticsChoice = cookieNotice && cookieNotice.querySelector('[data-cookie-analytics]');
@@ -89,14 +184,155 @@ document.addEventListener('DOMContentLoaded', () => {
 	const menuButton = document.querySelector('.menu-toggle');
 	const navigation = document.querySelector('.site-header nav');
 	if (menuButton && navigation) {
-		menuButton.addEventListener('click', () => {
-			const isOpen = navigation.classList.toggle('open');
+		const setNavigationOpen = (isOpen, restoreFocus = false) => {
+			navigation.classList.toggle('open', isOpen);
 			menuButton.setAttribute('aria-expanded', String(isOpen));
-			menuButton.textContent = isOpen ? '✕' : '☰';
+			menuButton.setAttribute('aria-label', isOpen ? 'Close menu' : 'Open menu');
+			if (isOpen && staffMenu) staffMenu.open = false;
+			if (restoreFocus) menuButton.focus();
+		};
+		menuButton.addEventListener('click', () => {
+			setNavigationOpen(!navigation.classList.contains('open'));
+		});
+		window.matchMedia('(max-width: 1200px)').addEventListener('change', () => {
+			setNavigationOpen(false);
+		});
+		navigation.querySelectorAll('a').forEach((link) => {
+			link.addEventListener('click', () => setNavigationOpen(false));
+		});
+		document.addEventListener('click', (event) => {
+			if (!navigation.contains(event.target) && !menuButton.contains(event.target)) {
+				setNavigationOpen(false);
+			}
+		});
+		document.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape' && navigation.classList.contains('open')) {
+				setNavigationOpen(false, true);
+			}
 		});
 	}
 
-	document.querySelectorAll('.filters select[name="collection"], .filters select[name="sort"], .catalogue-search select[name="collection"]').forEach((select) => {
+	document.querySelectorAll('[data-tag-picker]').forEach((picker) => {
+		const select = picker.querySelector('select');
+		const enhanced = picker.querySelector('.tag-picker-enhanced');
+		const input = picker.querySelector('.tag-picker-search');
+		const toggle = picker.querySelector('.tag-picker-toggle');
+		const chips = picker.querySelector('[data-tag-chips]');
+		const dropdown = picker.querySelector('.tag-picker-dropdown');
+		const list = picker.querySelector('[role="listbox"]');
+		const empty = picker.querySelector('.tag-picker-empty');
+		const status = picker.querySelector('.tag-picker-status');
+		const options = Array.from(select.options);
+		let matches = [];
+		let activeIndex = -1;
+		const setActive = (index) => {
+			activeIndex = index;
+			Array.from(list.children).forEach((item, position) => {
+				item.classList.toggle('is-active', position === index);
+				item.setAttribute('aria-selected', String(position === index));
+			});
+			if (index >= 0) {
+				const item = list.children[index];
+				input.setAttribute('aria-activedescendant', item.id);
+				item.scrollIntoView({block: 'nearest'});
+			} else {
+				input.removeAttribute('aria-activedescendant');
+			}
+		};
+		const setOpen = (open) => {
+			dropdown.hidden = !open;
+			input.setAttribute('aria-expanded', String(open));
+			toggle.setAttribute('aria-expanded', String(open));
+			toggle.setAttribute('aria-label', open ? 'Close available tags' : 'Show available tags');
+			if (!open) setActive(-1);
+		};
+		const renderOptions = () => {
+			list.replaceChildren();
+			const query = input.value.trim().toLocaleLowerCase();
+			matches = options.filter((option) => !option.selected && option.text.toLocaleLowerCase().includes(query));
+			matches.forEach((option) => {
+				const item = document.createElement('div');
+				item.id = `${select.id}-option-${options.indexOf(option)}`;
+				item.setAttribute('role', 'option');
+				item.setAttribute('aria-selected', 'false');
+				item.textContent = option.text;
+				item.addEventListener('mousedown', (event) => event.preventDefault());
+				item.addEventListener('click', () => addTag(option));
+				list.append(item);
+			});
+			empty.hidden = matches.length > 0;
+			setActive(-1);
+		};
+		const renderChips = () => {
+			chips.replaceChildren();
+			options.filter((option) => option.selected).forEach((option) => {
+				const chip = document.createElement('span');
+				chip.className = 'tag-picker-chip';
+				const label = document.createElement('span');
+				label.textContent = option.text;
+				const remove = document.createElement('button');
+				remove.type = 'button';
+				remove.textContent = '×';
+				remove.setAttribute('aria-label', `Remove ${option.text} tag`);
+				remove.addEventListener('click', () => {
+					option.selected = false;
+					renderChips();
+					renderOptions();
+					input.focus();
+					status.textContent = `${option.text} removed.`;
+				});
+				chip.append(label, remove);
+				chips.append(chip);
+			});
+		};
+		const addTag = (option) => {
+			option.selected = true;
+			input.value = '';
+			renderChips();
+			renderOptions();
+			input.focus();
+			setOpen(true);
+			status.textContent = `${option.text} added.`;
+		};
+		input.addEventListener('focus', () => { renderOptions(); setOpen(true); });
+		input.addEventListener('input', () => { renderOptions(); setOpen(true); });
+		input.addEventListener('keydown', (event) => {
+			if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+				event.preventDefault();
+				setOpen(true);
+				if (matches.length) {
+					const next = activeIndex < 0 ? (event.key === 'ArrowDown' ? 0 : matches.length - 1) : (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length;
+					setActive(next);
+				}
+			} else if (event.key === 'Enter') {
+				event.preventDefault();
+				if (!dropdown.hidden && activeIndex >= 0) addTag(matches[activeIndex]);
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				setOpen(false);
+			}
+		});
+		toggle.addEventListener('click', () => {
+			const open = dropdown.hidden;
+			input.focus();
+			renderOptions();
+			setOpen(open);
+		});
+		picker.addEventListener('focusout', (event) => {
+			if (!picker.contains(event.relatedTarget)) setOpen(false);
+		});
+		document.addEventListener('click', (event) => {
+			if (!picker.contains(event.target)) setOpen(false);
+		});
+		select.addEventListener('change', () => { renderChips(); renderOptions(); });
+		renderChips();
+		renderOptions();
+		select.hidden = true;
+		picker.querySelector('.tag-picker-native-label').hidden = true;
+		enhanced.hidden = false;
+	});
+
+	document.querySelectorAll('.catalogue-search select[name="collection"]').forEach((select) => {
 		select.addEventListener('change', () => {
 			if (select.form) select.form.requestSubmit();
 		});
@@ -112,25 +348,103 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	const shipToDifferentAddress = document.querySelector('#id_ship_to_different_address');
 	const shippingAddressFields = document.querySelector('[data-shipping-address-fields]');
-	const billingAddressSelect = document.querySelector('#id_billing_address');
 	const shippingAddressSelect = document.querySelector('#id_shipping_address');
 	const billingNewFields = document.querySelector('[data-billing-new-fields]');
 	const shippingNewFields = document.querySelector('[data-shipping-new-fields]');
+	const checkoutForm = document.querySelector('.checkout-form');
+	const updateCheckoutValidation = () => {
+		if (!checkoutForm) return;
+		checkoutForm.querySelectorAll('input, select, textarea').forEach((field) => {
+			const invalid = field.willValidate && !field.validity.valid;
+			field.setAttribute('aria-invalid', String(invalid));
+		});
+	};
+	if (checkoutForm) {
+		checkoutForm.addEventListener('invalid', () => {
+			checkoutForm.classList.add('checkout-validation-attempted');
+			updateCheckoutValidation();
+		}, true);
+		const updateEditedField = (event) => {
+			if (!event.target.matches('input, select, textarea')) return;
+			if (checkoutForm.classList.contains('checkout-validation-attempted')
+				|| event.target.hasAttribute('aria-invalid')) {
+				event.target.setAttribute('aria-invalid', String(!event.target.validity.valid));
+			}
+		};
+		checkoutForm.addEventListener('input', updateEditedField);
+		checkoutForm.addEventListener('change', updateEditedField);
+	}
+	const setAddressFieldsRequired = (container, required) => {
+		if (!container) return;
+		container.querySelectorAll('[data-required-address]').forEach((field) => {
+			field.required = required;
+			const marker = field.closest('label').querySelector('.checkout-required');
+			if (marker) marker.hidden = !required;
+			if (!required) field.removeAttribute('aria-invalid');
+		});
+	};
 	const updateAddressFields = () => {
 		if (shippingAddressFields) shippingAddressFields.hidden = !shipToDifferentAddress.checked;
-		if (billingNewFields) billingNewFields.hidden = Boolean(billingAddressSelect && billingAddressSelect.value);
 		if (shippingNewFields) shippingNewFields.hidden = Boolean(shippingAddressSelect && shippingAddressSelect.value);
+		setAddressFieldsRequired(billingNewFields, Boolean(billingNewFields && !billingNewFields.hidden));
+		setAddressFieldsRequired(
+			shippingNewFields,
+			Boolean(shippingAddressFields && !shippingAddressFields.hidden && shippingNewFields && !shippingNewFields.hidden)
+		);
+		if (checkoutForm && checkoutForm.classList.contains('checkout-validation-attempted')) {
+			updateCheckoutValidation();
+		}
 	};
 	if (shipToDifferentAddress) {
 		shipToDifferentAddress.addEventListener('change', updateAddressFields);
 		shippingAddressSelect && shippingAddressSelect.addEventListener('change', updateAddressFields);
-		billingAddressSelect && billingAddressSelect.addEventListener('change', updateAddressFields);
 		updateAddressFields();
 	}
 
 	const deliverySelect = document.querySelector('#id_shipping_method');
 	const shippingCountry = document.querySelector('#id_shipping_country');
 	const billingCountry = document.querySelector('#id_billing_country');
+	const phoneCountry = document.querySelector('#id_phone_country');
+	const phoneNumber = document.querySelector('#id_phone');
+	const phoneCountriesElement = document.querySelector('#phone-countries');
+	if (phoneCountry && phoneNumber && phoneCountriesElement) {
+		const phoneCountries = JSON.parse(phoneCountriesElement.textContent);
+		const phonePreview = document.querySelector('[data-phone-preview]');
+		const phoneHeading = document.querySelector('.checkout-phone-heading');
+		const phoneInfo = document.querySelector('.phone-info');
+		if (phoneInfo && phoneHeading) {
+			phoneInfo.addEventListener('click', () => {
+				phoneHeading.toggleAttribute('data-phone-help-open');
+			});
+			phoneInfo.addEventListener('keydown', (event) => {
+				if (event.key === 'Escape') {
+					phoneHeading.removeAttribute('data-phone-help-open');
+					phoneInfo.blur();
+				}
+			});
+			[phoneNumber, phoneCountry].forEach((field) => {
+				field.addEventListener('invalid', () => phoneHeading.setAttribute('data-phone-error', ''));
+			});
+		}
+		const updatePhonePreview = () => {
+			const details = Object.values(phoneCountries).find((country) => country.region === phoneCountry.value);
+			if (phonePreview) {
+				const digits = phoneNumber.value.replace(/[ ()-]/g, '');
+				phonePreview.textContent = details && digits ? `International number: ${details.calling_code}${digits}` : '';
+			}
+		};
+		billingCountry && billingCountry.addEventListener('change', () => {
+			const details = phoneCountries[billingCountry.value];
+			if (details) phoneCountry.value = details.region;
+			updatePhonePreview();
+		});
+		if (!phoneCountry.value && billingCountry && phoneCountries[billingCountry.value]) {
+			phoneCountry.value = phoneCountries[billingCountry.value].region;
+		}
+		phoneCountry.addEventListener('change', updatePhonePreview);
+		phoneNumber.addEventListener('input', updatePhonePreview);
+		updatePhonePreview();
+	}
 	const deliveryRatesElement = document.querySelector('#delivery-rates');
 	const countryShippingElement = document.querySelector('#country-shipping-config');
 	const shippingRateDataElement = document.querySelector('#shipping-rates');
@@ -138,21 +452,22 @@ document.addEventListener('DOMContentLoaded', () => {
 	const subtotalElement = document.querySelector('#checkout-subtotal');
 	const deliveryCostElement = document.querySelector('#checkout-delivery-cost');
 	const totalElement = document.querySelector('#checkout-total');
+	const deliveryServiceElement = document.querySelector('[data-delivery-service]');
+	const deliveryTransitElement = document.querySelector('[data-delivery-transit]');
 	if (deliverySelect && deliveryRatesElement && subtotalElement && deliveryCostElement && totalElement) {
 		const rates = JSON.parse(deliveryRatesElement.textContent);
 		const countryShipping = countryShippingElement ? JSON.parse(countryShippingElement.textContent) : {tiers: []};
 		const shippingRates = shippingRateDataElement ? JSON.parse(shippingRateDataElement.textContent) : [];
 		const parcel = parcelMetricsElement ? JSON.parse(parcelMetricsElement.textContent) : null;
 		const savedAddressesElement = document.querySelector('#saved-checkout-addresses');
-		const savedAddresses = savedAddressesElement ? JSON.parse(savedAddressesElement.textContent) : {billing: [], shipping: []};
-		const deliveryNote = document.querySelector('[data-delivery-note]');
+		const savedAddresses = savedAddressesElement ? JSON.parse(savedAddressesElement.textContent) : {shipping: []};
 		const subtotal = Number(subtotalElement.dataset.subtotal || 0);
 		const destinationCountry = () => {
 			const shippingChosen = Boolean(shipToDifferentAddress && shipToDifferentAddress.checked);
-			const addressSelect = shippingChosen ? shippingAddressSelect : billingAddressSelect;
 			const countryField = shippingChosen ? shippingCountry : billingCountry;
-			const addressList = shippingChosen ? savedAddresses.shipping : savedAddresses.billing;
-			const selectedAddress = addressList.find((address) => String(address.id) === (addressSelect && addressSelect.value));
+			const selectedAddress = shippingChosen && savedAddresses.shipping.find(
+				(address) => String(address.id) === (shippingAddressSelect && shippingAddressSelect.value)
+			);
 			return selectedAddress ? selectedAddress.country : countryField && countryField.value;
 		};
 		const shippingRuleForCountry = (country) => {
@@ -162,41 +477,86 @@ document.addEventListener('DOMContentLoaded', () => {
 				&& tier.countries.some((name) => name.toLowerCase() === normalizedCountry))
 				|| countryShipping.tiers.find((tier) => tier.tier === 'international');
 		};
-		const updateDeliveryOptions = () => {
-			const country = destinationCountry();
-			const countryRule = shippingRuleForCountry(country);
+		const regionForCountry = (country) => {
+			const normalizedCountry = (country || '').trim().toLowerCase();
+			const regions = countryShipping.regions || [];
+			if (!normalizedCountry || !regions.length) return null;
+			return regions.find((region) => region.countries.some((name) => name.toLowerCase() === normalizedCountry))
+				|| regions.find((region) => region.is_default)
+				|| null;
+		};
+		const regionNote = document.querySelector('[data-delivery-region]');
+		const serviceLabel = (service) => (service.transit ? `${service.label} (${service.transit})` : service.label);
+		let activeRates = rates;
+		let activeRegion = null;
+		const availableRatesForCountry = (country) => {
 			const countryRates = shippingRates.filter((rate) => country && rate.country.toLowerCase() === country.toLowerCase());
 			const serviceCodes = new Set(countryRates.map((rate) => rate.service__code));
-			let availableRates = serviceCodes.size ? rates.filter((rate) => serviceCodes.has(rate.code)) : rates;
+			const region = regionForCountry(country);
+			if (region && region.services.length) {
+				const narrowed = region.services.filter((service) => serviceCodes.has(service.code));
+				return {region, options: narrowed.length ? narrowed : region.services};
+			}
+			let available = serviceCodes.size ? rates.filter((rate) => serviceCodes.has(rate.code)) : rates;
+			const countryRule = shippingRuleForCountry(country);
 			if (countryRule) {
 				const tierCodes = countryRule.tier === 'uk' ? [countryRule.service_code, 'express_uk'] : [countryRule.service_code];
-				availableRates = availableRates.filter((rate) => tierCodes.includes(rate.code));
+				available = available.filter((rate) => tierCodes.includes(rate.code));
+				available = available.map((rate) => (rate.code === countryRule.service_code
+					? {...rate, label: countryRule.label, transit: countryRule.transit, price: countryRule.price, free_over: null}
+					: rate));
+			}
+			return {region, options: available};
+		};
+		const updateDeliveryOptions = () => {
+			const country = destinationCountry();
+			const {region, options} = availableRatesForCountry(country);
+			activeRates = options;
+			activeRegion = region;
+			if (regionNote) {
+				regionNote.textContent = !country
+					? 'Choose your country or region above to see the delivery methods available for your destination.'
+					: region
+						? `Showing ${region.name} delivery methods for ${country}.`
+						: `Showing delivery methods available for ${country}.`;
 			}
 			const currentCode = deliverySelect.value;
 			deliverySelect.replaceChildren();
-			if (!availableRates.length) {
+			if (!options.length) {
 				deliverySelect.add(new Option('No delivery service configured for this destination', ''));
 				deliverySelect.disabled = true;
 				return;
 			}
 			deliverySelect.disabled = false;
-			availableRates.forEach((rate) => {
-				const label = countryRule && rate.code === countryRule.service_code ? countryRule.label : rate.label;
-				deliverySelect.add(new Option(label, rate.code));
-			});
-			deliverySelect.value = availableRates.some((rate) => rate.code === currentCode) ? currentCode : availableRates[0].code;
+			options.forEach((option) => deliverySelect.add(new Option(serviceLabel(option), option.code)));
+			deliverySelect.value = options.some((option) => option.code === currentCode) ? currentCode : options[0].code;
 		};
 		const updateDeliveryTotal = () => {
-			const selected = rates.find((rate) => rate.code === deliverySelect.value);
+			const selected = activeRates.find((rate) => rate.code === deliverySelect.value)
+				|| rates.find((rate) => rate.code === deliverySelect.value);
 			if (!selected) {
 				deliveryCostElement.textContent = 'Unavailable';
 				totalElement.textContent = 'Unavailable';
-				if (deliveryNote) deliveryNote.textContent = 'No delivery service is configured for this destination.';
+				if (deliveryServiceElement) deliveryServiceElement.textContent = 'No delivery service is available for this destination.';
+				if (deliveryTransitElement) {
+					deliveryTransitElement.textContent = '';
+					deliveryTransitElement.hidden = true;
+				}
 				return;
 			}
-			const freeOver = selected.free_over === null ? null : Number(selected.free_over);
+			if (deliveryServiceElement) {
+				const label = selected.label.trim();
+				const regionName = activeRegion && activeRegion.name.trim();
+				deliveryServiceElement.textContent = regionName && !label.toLocaleLowerCase().startsWith(regionName.toLocaleLowerCase())
+					? `${regionName} ${label}`
+					: label;
+			}
+			if (deliveryTransitElement) {
+				deliveryTransitElement.textContent = selected.transit ? `Estimated transit: ${selected.transit}.` : '';
+				deliveryTransitElement.hidden = !selected.transit;
+			}
+			const freeOver = selected.free_over === null || selected.free_over === undefined ? null : Number(selected.free_over);
 			const country = destinationCountry();
-			const countryRule = shippingRuleForCountry(country);
 			const matchedRate = parcel && country
 				? shippingRates.find((rate) => rate.country.toLowerCase() === country.toLowerCase()
 					&& rate.service__code === deliverySelect.value
@@ -205,22 +565,11 @@ document.addEventListener('DOMContentLoaded', () => {
 					&& Number(rate.max_width_cm) >= Number(parcel.width_cm)
 					&& Number(rate.max_height_cm) >= Number(parcel.height_cm))
 				: null;
-			const tierPrice = countryRule && selected.code === countryRule.service_code ? Number(countryRule.price) : null;
 			const delivery = matchedRate
 				? Number(matchedRate.price)
-				: tierPrice !== null ? tierPrice
-					: freeOver !== null && subtotal >= freeOver ? 0 : Number(selected.price);
+				: freeOver !== null && subtotal >= freeOver ? 0 : Number(selected.price);
 			deliveryCostElement.textContent = delivery === 0 ? 'Free' : `£${delivery.toFixed(2)}`;
 			totalElement.textContent = `£${(subtotal + delivery).toFixed(2)}`;
-			if (deliveryNote) {
-				deliveryNote.textContent = matchedRate
-					? `Matched parcel rate: ${parcel.weight_grams} g, ${parcel.length_cm} × ${parcel.width_cm} × ${parcel.height_cm} cm.`
-					: tierPrice !== null
-						? `${countryRule.label} applies. Delivery times vary by destination.`
-					: country && shippingRates.some((rate) => rate.country.toLowerCase() === country.toLowerCase())
-						? 'No parcel band fits these dimensions; the current service price is shown.'
-						: 'No destination-specific rates are configured; the current service price is shown.';
-			}
 		};
 		const refreshDelivery = () => {
 			updateDeliveryOptions();
@@ -230,7 +579,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (shippingCountry) shippingCountry.addEventListener('change', refreshDelivery);
 		if (billingCountry) billingCountry.addEventListener('change', refreshDelivery);
 		if (shipToDifferentAddress) shipToDifferentAddress.addEventListener('change', refreshDelivery);
-		if (billingAddressSelect) billingAddressSelect.addEventListener('change', refreshDelivery);
 		if (shippingAddressSelect) shippingAddressSelect.addEventListener('change', refreshDelivery);
 		updateDeliveryOptions();
 		updateDeliveryTotal();
@@ -295,6 +643,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (managementForm) {
 				const statusField = managementForm.querySelector('[name="status"]');
 				const trackingField = managementForm.querySelector('[name="tracking_number"]');
+				const trackingUrlField = managementForm.querySelector('[name="tracking_url"]');
+				const royalMailUrl = (number) => number ? `https://www.royalmail.com/track-your-item#/tracking-results/${encodeURIComponent(number)}` : '';
+				let previousTrackingUrl = royalMailUrl(trackingField ? trackingField.value.trim() : '');
+				const syncTrackingUrl = () => {
+					if (!trackingField || !trackingUrlField) return;
+					const nextUrl = royalMailUrl(trackingField.value.trim());
+					if (!trackingUrlField.value.trim() || trackingUrlField.value.trim() === previousTrackingUrl) {
+						trackingUrlField.value = nextUrl;
+					}
+					previousTrackingUrl = nextUrl;
+				};
 				const saveButton = managementForm.querySelector('[data-order-save]');
 				const trackingLabel = trackingField && managementForm.querySelector(`label[for="${trackingField.id}"]`);
 				const syncShippingRequirement = () => {
@@ -308,6 +667,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				};
 				statusField && statusField.addEventListener('change', syncShippingRequirement);
 				trackingField && trackingField.addEventListener('input', syncShippingRequirement);
+				trackingField && trackingField.addEventListener('input', syncTrackingUrl);
+				syncTrackingUrl();
 				syncShippingRequirement();
 			}
 		});
@@ -326,16 +687,38 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (event.key === 'Escape') closeOrderModal();
 		});
 	}
+	const linkedOrderButton = document.querySelector('[data-order-auto-open]');
+	if (linkedOrderButton) linkedOrderButton.click();
 	document.addEventListener('click', (event) => {
 		const copyButton = event.target.closest('[data-copy-target]');
 		if (!copyButton) return;
 		const input = document.getElementById(copyButton.dataset.copyTarget);
 		if (!input) return;
+		let feedback = copyButton.closest('.order-copy-field, .order-pdf-link').querySelector('.copy-feedback');
+		if (!feedback) {
+			feedback = document.createElement('span');
+			feedback.className = 'copy-feedback';
+			feedback.setAttribute('role', 'status');
+			copyButton.parentElement.append(feedback);
+		}
+		const copyFailed = () => {
+			feedback.textContent = 'Copy failed. Select and copy the details manually.';
+			if (!input.hidden) {
+				input.focus();
+				input.select();
+			} else {
+				input.hidden = false;
+				input.focus();
+				input.select();
+			}
+		};
+		if (!navigator.clipboard || !navigator.clipboard.writeText) {
+			copyFailed();
+			return;
+		}
 		navigator.clipboard.writeText(input.value).then(() => {
-			const originalText = copyButton.textContent;
-			copyButton.textContent = 'Copied';
-			window.setTimeout(() => { copyButton.textContent = originalText; }, 1600);
-		});
+			feedback.textContent = 'Copied';
+		}, copyFailed);
 	});
 
 	const productModal = document.querySelector('[data-product-modal]');

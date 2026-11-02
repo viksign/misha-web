@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.contrib import admin
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from html.parser import HTMLParser
 
@@ -105,4 +106,80 @@ class ControlProductTests(TestCase):
         self.assertRedirects(response, reverse('control_products'))
         self.assertTrue(Product.objects.filter(pk=product.pk).exists())
         self.assertTrue(product.orderitem_set.exists())
-        self.assertContains(response, 'This product cannot be removed because it is associated with an order.')
+        self.assertContains(response, 'Product deletion is locked.')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, STAFF_MFA_REQUIRED=False)
+class ProductDeletionLockTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(username='product-lock-staff', is_staff=True)
+        self.client.force_login(self.staff)
+        self.product = Product.objects.create(
+            name='Protected pendant', slug='protected-pendant', sku='LOCK-001',
+            description='Keep this piece.', price='20.00', stock_quantity=5,
+        )
+        self.url = reverse('control_products')
+
+    def test_unordered_product_deletion_is_locked_and_remove_button_is_absent(self):
+        response = self.client.post(self.url, {
+            'action': 'delete', 'product_id': self.product.pk,
+        }, follow=True)
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
+        self.assertContains(response, 'Product deletion is locked.')
+        self.assertNotContains(response, '>Hide from listing<')
+        self.assertNotContains(response, 'value="hide"')
+        self.assertNotContains(response, 'value="delete"')
+        self.assertContains(response, 'class="product-catalogue-actions"')
+        self.assertContains(response, 'class="button product-add-button"')
+
+    def test_hide_and_restore_preserve_product_stock_history_and_orders(self):
+        order = Order.objects.create(email='customer@example.com', shipping_name='Customer')
+        OrderItem.objects.create(
+            order=order, product=self.product, product_name=self.product.name,
+            sku=self.product.sku, unit_price=self.product.price, quantity=1,
+        )
+        movements = list(self.product.stock_movements.values_list('pk', flat=True))
+        response = self.client.post(self.url, {'action': 'hide', 'product_id': self.product.pk}, follow=True)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.active)
+        self.assertEqual(self.product.stock_quantity, 5)
+        self.assertTrue(self.product.orderitem_set.exists())
+        self.assertEqual(list(self.product.stock_movements.values_list('pk', flat=True)), movements)
+        self.assertNotContains(response, '>Show in listing<')
+        self.assertNotContains(response, 'value="show"')
+        self.assertNotContains(self.client.get(reverse('catalogue')), self.product.name)
+        self.assertEqual(self.client.get(self.product.get_absolute_url()).status_code, 404)
+        self.assertRedirects(self.client.post(self.url, {'action': 'show', 'product_id': self.product.pk}), self.url)
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.active)
+        self.assertContains(self.client.get(reverse('catalogue')), self.product.name)
+        self.assertEqual(self.client.get(self.product.get_absolute_url()).status_code, 200)
+        self.assertEqual(list(self.product.stock_movements.values_list('pk', flat=True)), movements)
+
+    def test_get_request_cannot_change_visibility(self):
+        self.client.get(self.url, {'action': 'hide', 'product_id': self.product.pk})
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.active)
+
+    def test_customer_cannot_hide_product(self):
+        self.client.force_login(User.objects.create_user(username='product-lock-customer'))
+        self.assertEqual(self.client.post(self.url, {'action': 'hide', 'product_id': self.product.pk}).status_code, 302)
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.active)
+
+    def test_hide_requires_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.staff)
+        self.assertEqual(client.post(self.url, {'action': 'hide', 'product_id': self.product.pk}).status_code, 403)
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.active)
+
+    def test_admin_deletion_is_locked_even_for_superusers(self):
+        model_admin = admin.site._registry[Product]
+        request = RequestFactory().get('/admin/shop/product/')
+        request.user = User.objects.create_superuser(username='product-lock-admin', email='admin@example.com', password='test-password')
+        self.assertFalse(model_admin.has_delete_permission(request, self.product))
+        self.assertNotIn('delete_selected', model_admin.get_actions(request))
+        self.client.force_login(request.user)
+        self.assertEqual(self.client.post(reverse('admin:shop_product_delete', args=[self.product.pk]), {'post': 'yes'}).status_code, 403)
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())

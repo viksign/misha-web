@@ -4,19 +4,22 @@
 <section class="page-head"><p class="eyebrow">YOUR SELECTION</p><h1>Your Bag</h1></section>
 <section class="section bag">
 	{% for item in items %}
-		<div class="bag-row"><div><h3><a href="{{ item.product.get_absolute_url }}">{{ item.product.name }}</a></h3><p>£{{ item.product.price }} each</p></div><form method="post" action="{% url 'update_cart' item.product.pk %}">{% csrf_token %}<input type="number" name="quantity" min="0" value="{{ item.quantity }}"><button>Update</button></form><strong>£{{ item.total }}</strong><form method="post" action="{% url 'remove_from_cart' item.product.pk %}">{% csrf_token %}<button>Remove</button></form></div>
+		<div class="bag-row">
+			<div>
+				<h3><a href="{{ item.product.get_absolute_url }}">{{ item.product.name }}</a></h3>
+				{% if item.error %}<p role="alert">{{ item.error }} Remove this item and choose your options again.</p>{% else %}
+					{% if item.options %}<dl class="bag-row-options">{% for option in item.options %}<div class="bag-row-option"><dt>{{ option.kind }}</dt><dd>{{ option.label }}</dd></div>{% endfor %}</dl>{% endif %}
+					<p>£{{ item.unit_price }} each</p>
+				{% endif %}
+			</div>
+			<form method="post" action="{% url 'update_cart' item.product.pk %}">{% csrf_token %}<input type="hidden" name="key" value="{{ item.key }}"><input type="number" name="quantity" min="0" value="{{ item.quantity }}" aria-label="Quantity for {{ item.product.name }}"><button>Update</button></form>
+			<strong>{% if item.error %}Unavailable{% else %}£{{ item.total }}{% endif %}</strong>
+			<form method="post" action="{% url 'remove_from_cart' item.product.pk %}">{% csrf_token %}<input type="hidden" name="key" value="{{ item.key }}"><button>Remove</button></form>
+		</div>
 	{% empty %}<p>Your bag is empty.</p>{% endfor %}
 	{% if items %}
-		<form class="delivery-picker" method="post">
-			{% csrf_token %}
-			<label for="shipping_method">Delivery method</label>
-			<select id="shipping_method" name="shipping_method" onchange="this.form.submit()">
-				{% for value, label in delivery_options %}<option value="{{ value }}"{% if value == selected_delivery %} selected{% endif %}>{{ label }}{% if value == 'standard_uk' and cart.subtotal >= 100 %} - Free{% endif %}</option>{% endfor %}
-			</select>
-			<small>Final delivery is confirmed at checkout based on destination and parcel size.</small>
-			<noscript><button class="button outline" type="submit">Update delivery</button></noscript>
-		</form>
-		<div class="summary"><p>Subtotal <strong>£{{ cart.subtotal }}</strong></p><p>{{ selected_delivery|title }} estimate <strong>{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p><h2>Estimated total <strong>£{{ cart_total }}</strong></h2><a class="button" href="{% url 'checkout' %}">Proceed to checkout</a></div>
+		{% if has_invalid_items %}<p role="alert">Remove unavailable selections before checkout. Totals exclude unavailable items.</p>{% endif %}
+		<div class="summary"><p>Subtotal <strong>£{{ cart.subtotal }}</strong></p><h2>Total <strong>£{{ cart.subtotal }}</strong></h2><small>Delivery is calculated at checkout once you choose your country.</small>{% if not has_invalid_items %}<a class="button" href="{% url 'checkout' %}">Proceed to checkout</a>{% endif %}</div>
 	{% endif %}
 </section>
 {% if suggested_products %}
@@ -32,12 +35,14 @@
 					{% if product.primary_image %}<img src="{{ product.primary_image.image.url }}" alt="{{ product.primary_image.alt_text|default:product.name }}" loading="lazy">{% else %}<span>✿</span>{% endif %}
 				</a>
 				<div class="product-info"><div><h3><a href="{{ product.get_absolute_url }}">{{ product.name }}</a></h3><p>{{ product.material }}</p></div><strong>£{{ product.price }}</strong></div>
-				<form method="post" action="{% url 'add_to_cart' product.pk %}">
+				{% if product.options.all %}
+					<a class="button" href="{{ product.get_absolute_url }}">Choose options</a>
+				{% else %}<form method="post" action="{% url 'add_to_cart' product.pk %}">
 					{% csrf_token %}
 					<input type="hidden" name="quantity" value="1">
 					<input type="hidden" name="next" value="{% url 'cart' %}">
 					<button class="button" type="submit">Add to bag</button>
-				</form>
+				</form>{% endif %}
 			</article>
 		{% endfor %}
 	</div>

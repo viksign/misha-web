@@ -4,9 +4,11 @@
 <section class="page-head success">
 	<p class="eyebrow">ORDER RECEIVED</p>
 	{% if order %}
-		<h1>Thank you for your order</h1>
+		{% if order.paid_at %}<h1>Thank you for your order</h1><p>Your payment has been confirmed.</p>{% else %}<h1>Payment confirmation pending</h1><p>Please do not place another order. We are waiting for payment confirmation. Contact customer care if you need help.</p>{% endif %}
 		<p>Your order reference is <strong>{{ order.order_reference|default:order.id }}</strong>. We will contact you with the next steps.</p>
 		<p class="order-status-note">Order status: {{ order.get_status_display }} · Payment status: {{ order.get_payment_status_display }}</p>
+		{% if order.phone %}<p>Contact phone: {{ order.phone }}</p>{% endif %}
+		<p><a class="button outline" href="{{ tracking_page_url }}">Track your order</a></p>
 		<div class="order-details-grid">
 			<section class="order-details-panel">
 				<h2>Payment details</h2>
