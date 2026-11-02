@@ -294,6 +294,19 @@ because migrations run there and replicate. On the standby,
 `docker compose --profile promoted run --rm --no-deps --entrypoint python web manage.py migrate --check`
 confirms that the standby code matches the replicated schema.
 
+#### Payments and email parity
+
+Both hosts must use identical Stripe and SMTP settings: the same live
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `EMAIL_*` and
+`DEFAULT_FROM_EMAIL`. Only `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`,
+`COMPOSE_FILE`, `MISHA_REPLICATION_DIR` and `REPLICATION_PRIMARY_HOST` may
+differ. Keep exactly one Stripe webhook endpoint,
+`https://mishaislandheritage.com/payments/stripe/webhook/`. It follows the
+Cloudflare switch, so no Stripe change is needed at failover. Do not add a
+`www2` endpoint: it returns 503, and Stripe would eventually disable it.
+SendGrid sender authentication is DNS-based, so mail sends the same from
+either host. After changing secrets on Azure, copy them to the standby.
+
 #### Failover (Azure unavailable)
 
 Up to a few seconds of the most recent orders may be lost. Run on the standby:
