@@ -1,0 +1,5 @@
+<label class="checkout-field{% if saved_address %} saved-address-field{% endif %}" for="{{ field.id_for_label }}">
+	{{ field.label }}{% if field.field.required or address_required %} <span class="checkout-required" aria-hidden="true"{% if not field.field.required %} hidden{% endif %}>*</span>{% endif %}
+	{{ field }}
+	{{ field.errors }}
+</label>

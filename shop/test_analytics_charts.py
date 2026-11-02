@@ -83,8 +83,14 @@ class AnalyticsChartTests(TestCase):
         self.assertEqual(parse_qs(response.context['analytics_chart_query']), {key: [str(value)] for key, value in self.params.items()})
 
     def location_event(self, ip, **values):
+        location_fields = {
+            key: values[key]
+            for key in ('city', 'region', 'country', 'latitude', 'longitude')
+            if key in values
+        }
+        values = {key: value for key, value in values.items() if key not in location_fields}
         event = self.event(values.pop('kind', 'page_view'), **values)
-        AnalyticsEvent.objects.filter(pk=event.pk).update(ip_address=ip)
+        AnalyticsEvent.objects.filter(pk=event.pk).update(ip_address=ip, **location_fields)
 
     def test_location_connections_count_page_views_and_distinct_ips_with_shared_filters(self):
         for ip in ['192.0.2.1', '192.0.2.2']:
@@ -105,6 +111,37 @@ class AnalyticsChartTests(TestCase):
         self.assertEqual(data['datasets'][0]['data'], [3, 1])
         self.assertEqual(len(data['datasets'][0]['backgroundColor']), 2)
         self.assertFalse(data['empty'])
+
+    def test_cloudflare_event_locations_take_precedence_in_charts_filters_and_activity(self):
+        IPGeolocation.objects.create(ip_address='203.0.113.1', city='Paris', country='France')
+        direct_location = {
+            'city': 'London',
+            'region': 'England',
+            'country': 'United Kingdom',
+            'latitude': 51.5072,
+            'longitude': -0.1276,
+        }
+        self.location_event('203.0.113.1', **direct_location)
+        self.location_event('203.0.113.1', **direct_location)
+        self.location_event('203.0.113.2', **direct_location)
+        self.client.force_login(self.staff)
+
+        chart = self.client.get(reverse('analytics_locations_chart'), self.params).json()
+        self.assertEqual(
+            chart['labels'],
+            ['London, England, United Kingdom · 2 unique IP addresses'],
+        )
+        self.assertEqual(chart['datasets'][0]['data'], [3])
+
+        filters = {**self.params, 'country': 'United Kingdom', 'city': 'London'}
+        activity = self.client.get(reverse('control_analytics'), filters)
+        self.assertEqual(activity.context['event_page'].paginator.count, 3)
+        self.assertContains(activity, 'data-location="London, England, United Kingdom"')
+        self.assertContains(activity, 'Approx. 51.5072, -0.1276')
+        self.assertEqual(
+            self.client.get(reverse('analytics_locations_chart'), filters).json()['datasets'][0]['data'],
+            [3],
+        )
 
     def test_location_chart_includes_unknown_missing_and_private_ips_without_remote_lookups(self):
         IPGeolocation.objects.create(ip_address='10.0.0.1', is_private=True)

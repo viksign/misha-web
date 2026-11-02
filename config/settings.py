@@ -171,8 +171,11 @@ EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+if EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend' and EMAIL_HOST.lower() == 'smtp.sendgrid.net':
+    EMAIL_BACKEND = 'shop.email_backend.EmailBackend'
 
 SITE_URL = os.getenv('SITE_URL', 'https://www.mishaislandheritage.com').rstrip('/')
+ORDER_TRACKING_SITE_URL = os.getenv('ORDER_TRACKING_SITE_URL', SITE_URL).rstrip('/')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.8-flash').strip()
 

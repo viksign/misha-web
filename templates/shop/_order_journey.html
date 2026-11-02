@@ -1,0 +1,38 @@
+<div class="order-journey">
+	<p class="order-tracking-source">Progress is updated by our team as we process and dispatch your order. For parcel updates after dispatch, use the carrier tracking link.</p>
+	<div class="order-journey-chart-wrap">
+		<div class="order-journey-pie" role="img" aria-label="Order journey {{ order.tracking_view.progress_percent }} percent reached" style="background:{{ order.tracking_view.pie_style }}">
+			<span>{{ order.tracking_view.progress_percent }}%</span>
+		</div>
+		<ul class="order-journey-legend">
+			{% for step in order.tracking_view.steps %}
+				<li class="is-{{ step.state }}"><span aria-hidden="true"></span>{{ step.label }} <small>{{ step.state_label }}</small></li>
+			{% endfor %}
+		</ul>
+	</div>
+	<ol class="order-journey-timeline">
+		{% for step in order.tracking_view.steps %}
+			<li class="is-{{ step.state }}">
+				<div><strong>{{ step.label }}</strong><span>{{ step.state_label }}</span></div>
+				{% if step.timestamp %}<time datetime="{{ step.timestamp|date:'c' }}">{{ step.timestamp|date:'j M Y, H:i' }}</time>{% endif %}
+			</li>
+		{% endfor %}
+	</ol>
+	{% if order.status == 'cancelled' %}
+		<p class="order-tracking-notice">This order was cancelled. Contact us if you need help.</p>
+	{% elif order.status == 'return' %}
+		<p class="order-tracking-notice">This order is being handled as a return.</p>
+	{% endif %}
+	{% if order.tracking_number %}
+		<div class="order-tracking-parcel">
+			<h3>Dispatch and parcel tracking</h3>
+			<p><strong>Tracking number:</strong> <span class="order-tracking-number">{{ order.tracking_number }}</span></p>
+			{% if order.shipped_at %}<p><strong>Dispatched:</strong> {{ order.shipped_at|date:'j F Y, H:i' }}</p>{% endif %}
+			{% if order.tracking_view.tracking_url %}
+				<p><a class="button outline" href="{{ order.tracking_view.tracking_url }}" target="_blank" rel="noopener noreferrer">Open carrier tracking</a></p>
+			{% endif %}
+		</div>
+	{% else %}
+		<p class="tracking-pending">A tracking number and dispatch details will appear here once your order has shipped.</p>
+	{% endif %}
+</div>

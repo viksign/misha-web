@@ -30,6 +30,19 @@ class PasswordResetEmailTests(TestCase):
         self.assertEqual(mail.outbox[0].from_email, 'no-reply@mishaislandheritage.com')
 
 
+class TermsAndConditionsTests(TestCase):
+    def test_terms_page_and_footer_include_returns_policy(self):
+        response = self.client.get(reverse('terms_and_conditions'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Terms &amp; Conditions')
+        self.assertContains(response, 'id="returns-and-refunds"', html=False)
+        self.assertContains(response, 'intact, unused, unworn and unopened')
+        self.assertContains(response, 'earrings cannot be returned once their sealed packaging has been opened')
+        self.assertContains(response, 'They do not affect your statutory rights under UK consumer law')
+        self.assertContains(response, f'href="{reverse("terms_and_conditions")}"', html=False)
+
+
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
     PREORDER_NOTIFICATION_EMAIL='staff@example.com',
@@ -113,11 +126,17 @@ class InterestSignupTests(TestCase):
         self.assertNotContains(response, 'Notify me')
         self.assertContains(response, 'Product Overview')
         self.assertContains(response, 'Product Details')
-        self.assertContains(response, 'Delivery options')
         self.assertContains(response, 'Specifications')
-        self.assertContains(response, 'Shipment and Delivery')
-        self.assertContains(response, 'UK Standard Delivery:')
-        self.assertContains(response, '£3.99')
+        self.assertContains(response, 'Shipping &amp; Delivery')
+        self.assertContains(response, 'Order processing')
+        self.assertContains(response, 'A tracking number will be emailed to you once your order ships.')
+        self.assertContains(response, 'UK Standard Delivery (3-5 business days)')
+        self.assertContains(response, 'Europe Standard Delivery (Royal Mail) (7-15 business days)')
+        self.assertContains(response, '<details class="product-accordion product-overview">', html=False)
+        self.assertContains(response, 'Returns &amp; Refunds')
+        self.assertContains(response, 'earrings cannot be returned once their sealed packaging has been opened')
+        self.assertContains(response, 'mailto:customercare@mishaislandheritage.com')
+        self.assertContains(response, reverse('terms_and_conditions') + '#returns-and-refunds')
 
     def test_add_to_bag_offers_checkout_and_continue_shopping(self):
         self.product.stock_quantity = 1

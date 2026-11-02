@@ -55,7 +55,6 @@ class SeoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/x-icon')
         self.assertEqual(b''.join(response.streaming_content), expected)
-        response.close()
         for path in ['/', '/login/', '/staff-auth/login/', '/not-a-real-page/']:
             with self.subTest(path=path):
                 self.assertContains(
@@ -74,7 +73,6 @@ class SeoTests(TestCase):
                 self.assertEqual(b''.join(response.streaming_content).strip(), expected)
                 self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
                 self.assertNotIn('Location', response)
-                response.close()
 
     @override_settings(ALLOWED_HOSTS=['mishaislandheritage.com', 'www.mishaislandheritage.com'])
     def test_public_pages_have_canonical_and_indexable_metadata(self):

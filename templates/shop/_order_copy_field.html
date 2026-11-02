@@ -1,0 +1,12 @@
+<div class="order-copy-field">
+  <label for="copy-{{ order.pk }}-{{ key }}">{{ label }}</label>
+  {% if value %}
+    <div class="order-copy-control">
+      <input id="copy-{{ order.pk }}-{{ key }}" type="text" readonly value="{{ value }}">
+      <button class="button outline" type="button" data-copy-target="copy-{{ order.pk }}-{{ key }}" aria-label="Copy {{ label|lower }}">Copy</button>
+    </div>
+  {% else %}
+    <span>Not provided</span>
+  {% endif %}
+  <span class="copy-feedback" role="status" aria-live="polite"></span>
+</div>

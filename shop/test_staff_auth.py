@@ -35,7 +35,7 @@ class StaffMFATests(TestCase):
         for url in [
             reverse('control_panel'), reverse('control_orders'), reverse('control_sales'),
             reverse('control_analytics'), reverse('analytics_locations_chart'),
-            reverse('control_users'), reverse('control_order_pdf', args=[1]), '/admin/', '/admin/auth/user/',
+            reverse('control_users'), reverse('control_order_pdf', args=[1]), reverse('order_tracking'), '/admin/', '/admin/auth/user/',
         ]:
             response = self.client.get(url)
             self.assertRedirects(response, reverse('two_factor:setup'), fetch_redirect_response=False)
@@ -54,10 +54,23 @@ class StaffMFATests(TestCase):
 
     def test_verified_staff_can_access_admin_controlpanel_and_recovery_codes(self):
         self.verify_session(self.device())
-        for url in ['/admin/', reverse('control_panel'), reverse('two_factor:profile'), reverse('two_factor:backup_tokens')]:
+        for url in ['/admin/', reverse('control_panel'), reverse('order_tracking'), reverse('two_factor:profile'), reverse('two_factor:backup_tokens')]:
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertEqual(self.client.post(reverse('two_factor:backup_tokens')).status_code, 302)
         self.assertEqual(StaticToken.objects.filter(device__user=self.staff).count(), 10)
+
+    def test_public_tracking_and_signed_links_do_not_require_staff_mfa(self):
+        from .models import Order
+        from .order_tracking import private_order_tracking_path
+        order = Order.objects.create(
+            email='guest@example.com', shipping_name='Guest', shipping_address1='1 Street',
+            shipping_city='London', shipping_postcode='N1 1AA',
+        )
+        self.assertEqual(self.client.get(reverse('order_tracking')).status_code, 200)
+        self.client.force_login(self.customer)
+        self.assertEqual(self.client.get(reverse('order_tracking')).status_code, 200)
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(private_order_tracking_path(order)).status_code, 200)
 
     def test_account_security_rejects_anonymous_customer_and_password_only_staff(self):
         urls = [reverse('two_factor:profile'), reverse('two_factor:backup_tokens')]
@@ -191,6 +204,61 @@ class StaffMFATests(TestCase):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(reverse('home')).status_code, 200)
         self.assertEqual(self.client.get(reverse('login')).status_code, 200)
+
+    def test_control_panel_cog_follows_notifications_and_is_staff_only(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse('home'))
+        self.assertContains(response, 'class="control-panel-action"')
+        self.assertContains(response, 'class="mobile-staff-menu"')
+        self.assertContains(response, 'aria-label="Staff menu"')
+        self.assertContains(response, 'class="mobile-staff-panel"')
+        self.assertNotContains(response, 'class="staff-navigation-close"')
+        self.assertContains(response, 'class="action-icon menu-toggle-icon"', count=2)
+        self.assertContains(response, 'class="mobile-home-action"')
+        self.assertContains(response, 'class="mobile-jewellery-action"')
+        self.assertContains(response, 'class="action-icon jewellery-bust-icon"')
+        self.assertContains(response, 'class="mobile-navigation-heading">Staff menu</p>')
+        self.assertContains(response, 'class="mobile-navigation-heading">Explore MISHA</p>')
+        self.assertContains(response, 'class="search-action"')
+        self.assertContains(response, 'class="site-header signed-in-header staff-header"')
+        self.assertContains(response, 'aria-label="Control panel" title="Control panel"')
+        content = response.content.decode()
+        self.assertLess(content.index('class="mobile-home-action"'), content.index('class="mobile-jewellery-action"'))
+        self.assertLess(content.index('class="menu-toggle"'), content.index('class="mobile-home-action"'))
+        self.assertNotContains(response, 'menu-cross')
+        self.assertLess(content.index('class="search-action"'), content.index('class="cart-action"'))
+        staff_panel = content.split('class="mobile-staff-panel"', 1)[1].split('</details>', 1)[0]
+        self.assertNotIn('Search jewellery', staff_panel)
+        navigation = content.split('<nav id="site-navigation"', 1)[1].split('</nav>', 1)[0]
+        self.assertContains(response, 'aria-controls="site-navigation"')
+        self.assertNotContains(response, 'class="menu-toggle-label"')
+        self.assertNotContains(response, 'class="navigation-close"')
+        self.assertNotIn(reverse('control_panel'), navigation)
+        self.assertLess(content.index('class="notification-menu"'), content.index('class="control-panel-action"'))
+        self.assertNotIn('>Control panel</a>', navigation)
+        self.client.force_login(self.customer)
+        self.assertNotContains(self.client.get(reverse('home')), 'class="control-panel-action"')
+        self.assertNotContains(self.client.get(reverse('home')), 'class="mobile-staff-menu"')
+        self.assertNotContains(self.client.get(reverse('home')), 'signed-in-header staff-header')
+        self.client.logout()
+        self.assertNotContains(self.client.get(reverse('home')), 'class="control-panel-action"')
+
+    def test_visible_logout_icon_is_after_cog_for_staff_and_logs_out_customers(self):
+        for user in (self.staff, self.customer):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+                response = self.client.get(reverse('home'))
+                self.assertContains(response, 'class="logout-action-form"')
+                self.assertContains(response, 'aria-label="Sign out" title="Sign out"')
+                self.assertNotContains(response, 'class="signout-menu"')
+                content = response.content.decode()
+                if user.is_staff:
+                    self.assertLess(content.index('class="control-panel-action"'), content.index('class="logout-action-form"'))
+                self.assertContains(response, f'method="post" action="{reverse("logout")}"')
+                self.assertContains(response, 'name="csrfmiddlewaretoken"')
+                self.assertEqual(self.client.post(reverse('logout')).status_code, 302)
+                self.assertNotIn('_auth_user_id', self.client.session)
+                self.assertNotContains(self.client.get(reverse('home')), 'class="logout-action-form"')
 
     def test_staff_login_is_rate_limited(self):
         with override_settings(SECURITY_LOGIN_LIMIT=1):

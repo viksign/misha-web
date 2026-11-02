@@ -1,21 +1,29 @@
 from django.contrib import admin
-from .models import StockMovement
-from .models import AnalyticsEvent, Collection, CustomDesignRequest, CustomDesignRequestReply, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, Enquiry, InterestSignup, Order, OrderItem, PrivacyRequest, Product, ProductImage, ShippingPackaging, ShippingRate
+from .models import ProductCategory, ProductTag, StockMovement
+from .models import AnalyticsEvent, Collection, CustomDesignRequest, CustomDesignRequestReply, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, DeliveryRegion, Enquiry, InterestSignup, Order, OrderItem, PrivacyRequest, Product, ProductImage, ProductOption, ShippingPackaging, ShippingRate
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
 
+class ProductOptionInline(admin.TabularInline):
+    model = ProductOption
+    extra = 1
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name','sku','collection','price','stock_quantity','preorder_enabled','featured','active')
-    list_filter = ('active','featured','preorder_enabled','collection')
+    list_display = ('name','sku','category','collection','price','stock_quantity','preorder_enabled','featured','active')
+    list_filter = ('active','featured','preorder_enabled','category','tags','collection')
+    filter_horizontal = ('tags',)
     search_fields = ('name','sku','description')
     prepopulated_fields = {'slug': ('name',)}
-    inlines = [ProductImageInline]
+    inlines = [ProductImageInline, ProductOptionInline]
 
     def save_model(self, request, obj, form, change):
         obj.save(stock_actor=request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(StockMovement)
@@ -59,25 +67,45 @@ class CollectionAdmin(admin.ModelAdmin):
     prepopulated_fields = {'slug': ('name',)}
     list_filter = ('featured', 'active')
 
+
+@admin.register(ProductCategory, ProductTag)
+class ProductTaxonomyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug')
+    search_fields = ('name',)
+    prepopulated_fields = {'slug': ('name',)}
+
+@admin.register(DeliveryRegion)
+class DeliveryRegionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_default', 'active', 'sort_order')
+    list_filter = ('active', 'is_default')
+    list_editable = ('is_default', 'active', 'sort_order')
+    search_fields = ('name', 'countries')
+
 @admin.register(DeliveryOption)
 class DeliveryOptionAdmin(admin.ModelAdmin):
-    list_display = ('label', 'code', 'price', 'free_over', 'active', 'sort_order')
-    list_filter = ('active',)
+    list_display = ('label', 'code', 'region', 'transit_time', 'price', 'free_over', 'active', 'sort_order')
+    list_filter = ('active', 'region')
     list_editable = ('price', 'free_over', 'active', 'sort_order')
     search_fields = ('label', 'code')
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ('product_name','sku','unit_price','quantity','line_total')
+    readonly_fields = ('product_name','sku','options_summary','chain_length','size','unit_price','quantity','line_total')
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id','email','status','processor_name','total','created_at')
-    list_filter = ('status','assigned_to','created_at')
-    search_fields = ('email','stripe_session_id','shipping_name')
+    list_display = ('order_reference','email','status','payment_status','checkout_state','processor_name','total','created_at')
+    list_filter = ('payment_status','status','assigned_to','created_at')
+    search_fields = ('order_reference','email','phone','stripe_session_id','shipping_name')
     readonly_fields = ('stripe_session_id', 'payment_status', 'paid_at', 'stock_deducted_at', 'processing_started_at', 'shipped_at', 'completed_at', 'payment_method', 'transaction_id', 'payment_date', 'refund_status', 'refunded_amount', 'stripe_refund_id', 'tracking_email_sent_at', 'created_at')
     inlines = [OrderItemInline]
+
+    @admin.display(description='Payment confirmation')
+    def checkout_state(self, obj):
+        if obj.is_unpaid_checkout:
+            return 'Unpaid checkout attempt - do not fulfil'
+        return 'Payment confirmed' if obj.paid_at or obj.payment_status in {'paid', 'partially_refunded', 'refunded'} else 'Manual order'
 
     @admin.display(description='Processing by', ordering='assigned_to__first_name')
     def processor_name(self, obj):

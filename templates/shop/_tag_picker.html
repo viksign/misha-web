@@ -1,0 +1,17 @@
+<div class="tag-picker" data-tag-picker>
+  <label class="tag-picker-native-label" for="{{ field.id_for_label }}">Select tags</label>
+  {{ field }}
+  <div class="tag-picker-enhanced" hidden>
+    <label class="tag-picker-label" for="{{ field.auto_id }}-search">Find and add tags</label>
+    <div class="tag-picker-box">
+      <div class="tag-picker-chips" data-tag-chips></div>
+      <input id="{{ field.auto_id }}-search" class="tag-picker-search" type="text" role="combobox" aria-expanded="false" aria-controls="{{ field.auto_id }}-options" aria-autocomplete="list"{% if help_id %} aria-describedby="{{ help_id }}"{% endif %} placeholder="Search or select tags…" autocomplete="off">
+      <button class="tag-picker-toggle" type="button" aria-label="Show available tags" aria-expanded="false" aria-controls="{{ field.auto_id }}-options">&#9662;</button>
+    </div>
+    <div class="tag-picker-dropdown" hidden>
+      <div id="{{ field.auto_id }}-options" role="listbox" aria-label="Available tags"></div>
+      <p class="tag-picker-empty" hidden>No matching tags available.</p>
+    </div>
+    <span class="tag-picker-status" role="status" aria-live="polite"></span>
+  </div>
+</div>

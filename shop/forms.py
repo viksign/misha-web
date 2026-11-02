@@ -7,8 +7,42 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from .models import Collection, CustomDesignRequest, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, Enquiry, InterestSignup, Order, Product, ShippingPackaging, ShippingRate
-from .shipping import SHIPPING_TIERS, shipping_tier_for_country
+from .models import Collection, CustomDesignRequest, CustomerAddress, CustomerProfile, CustomerReview, DeliveryOption, DeliveryRegion, Enquiry, InterestSignup, Order, Product, ProductCategory, ProductTag, ProductOption, ShippingPackaging, ShippingRate
+from .shipping import SHIPPING_TIERS, delivery_region_for_country, shipping_tier_for_country
+from django.core.validators import validate_email
+from .models import OrderReminderRule
+import phonenumbers
+from .phone import phone_countries, phone_parts, validate_checkout_phone
+from .order_tracking import royalmail_tracking_url
+
+
+class OrderReminderRuleForm(forms.ModelForm):
+    class Meta:
+        model = OrderReminderRule
+        fields = ['status', 'after_hours', 'staff', 'distribution_emails', 'enabled']
+        widgets = {'staff': forms.SelectMultiple(), 'distribution_emails': forms.Textarea(attrs={'rows': 4})}
+        labels = {'after_hours': 'Remind after (hours)', 'staff': 'Staff recipients'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['staff'].queryset = User.objects.filter(is_staff=True, is_active=True).exclude(email='').order_by('username')
+        self.fields['staff'].label_from_instance = lambda user: f'{user.get_full_name() or user.username} ({user.email})'
+
+    def clean_distribution_emails(self):
+        emails = []
+        for email in self.cleaned_data['distribution_emails'].splitlines():
+            email = email.strip()
+            if email:
+                validate_email(email)
+                if email.lower() not in emails:
+                    emails.append(email.lower())
+        return '\n'.join(emails)
+
+    def clean(self):
+        data = super().clean()
+        if data.get('enabled') and not data.get('staff') and not data.get('distribution_emails'):
+            raise ValidationError('Choose staff recipients or enter a distribution-list email before enabling this reminder.')
+        return data
 
 COUNTRIES = [
     'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia', 'Australia',
@@ -64,6 +98,16 @@ def get_delivery_options_for_country(country):
         active=True,
         service__active=True,
     ).values_list('service__code', flat=True))
+
+    region = delivery_region_for_country(country)
+    region_codes = {
+        option.code for option in region.delivery_options.all() if option.active
+    } if region is not None else set()
+    if region_codes:
+        choices = [option for option in options if option[0] in region_codes]
+        narrowed = [option for option in choices if option[0] in service_codes]
+        return narrowed or choices
+
     tier = shipping_tier_for_country(country)
     if not service_codes:
         if tier == 'uk':
@@ -124,12 +168,139 @@ class CustomerReviewForm(forms.ModelForm):
 class ProductManagementForm(forms.ModelForm):
     class Meta:
         model = Product
-        fields = ['name', 'slug', 'sku', 'collection', 'description', 'short_description', 'price', 'compare_at_price', 'cost_price', 'reorder_level', 'restock_target', 'material', 'dimensions', 'size', 'length', 'weight', 'shipping_box_weight_grams', 'shipping_box_length_cm', 'shipping_box_width_cm', 'shipping_box_height_cm', 'technical_details', 'stock_quantity', 'preorder_enabled', 'featured', 'active']
+        fields = ['name', 'slug', 'sku', 'category', 'tags', 'collection', 'description', 'short_description', 'price', 'cost_price', 'reorder_level', 'restock_target', 'material', 'chain_style', 'colour', 'dimensions', 'weight', 'technical_details', 'stock_quantity', 'preorder_enabled', 'featured', 'active']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 5}),
             'short_description': forms.Textarea(attrs={'rows': 2}),
             'technical_details': forms.Textarea(attrs={'rows': 5}),
+            'tags': forms.SelectMultiple(),
         }
+        help_texts = {'category': 'Choose one category.', 'tags': 'Choose any tags that apply. Manage categories and tags in the Control Panel.'}
+
+
+class ProductCategoryManagementForm(forms.ModelForm):
+    class Meta:
+        model = ProductCategory
+        fields = ['name', 'slug']
+
+
+class ProductTagManagementForm(forms.ModelForm):
+    class Meta:
+        model = ProductTag
+        fields = ['name', 'slug']
+
+
+class CatalogueFilterForm(forms.Form):
+    category = forms.ModelChoiceField(
+        queryset=ProductCategory.objects.all(), to_field_name='slug',
+        required=False, empty_label='All categories',
+    )
+    tags = forms.ModelMultipleChoiceField(
+        queryset=ProductTag.objects.all(), to_field_name='slug',
+        required=False, widget=forms.SelectMultiple(attrs={'aria-describedby': 'tag-filter-help'}),
+    )
+    sort = forms.ChoiceField(required=False, choices=[
+        ('default', 'Recommended'),
+        ('price_asc', 'Price: low to high'),
+        ('price_desc', 'Price: high to low'),
+        ('preorder_first', 'Pre-order first'),
+    ], initial='default')
+
+
+class ProductCatalogueFilterForm(CatalogueFilterForm):
+    sort = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['tags'].widget.attrs['aria-describedby'] = 'product-filter-tag-help'
+
+
+class BaseProductOptionFormSet(forms.BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        groups = {}
+        position = 0
+        for form in self.forms:
+            if not form.has_changed() and not form.instance.pk:
+                continue
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            if not form.cleaned_data.get('label'):
+                continue
+            kind = form.cleaned_data['kind']
+            group = groups.setdefault(kind.casefold(), {'kind': kind, 'forms': []})
+            form.cleaned_data['kind'] = form.instance.kind = group['kind']
+            form.instance.sort_order = position
+            position += 1
+            group['forms'].append(form)
+        labels = set()
+        for key, group in groups.items():
+            for form in group['forms']:
+                label_key = (key, form.cleaned_data['label'].casefold())
+                if label_key in labels:
+                    raise ValidationError(f'“{form.cleaned_data["label"]}” is listed more than once for {group["kind"].lower()}.')
+                labels.add(label_key)
+            defaults = [form for form in group['forms'] if form.cleaned_data.get('is_default')]
+            if len(defaults) > 1:
+                raise ValidationError(f'Choose only one default {group["kind"].lower()}.')
+            if not defaults:
+                included = [form for form in group['forms'] if not form.cleaned_data.get('additional_cost')]
+                if not included:
+                    raise ValidationError(f'Add a {group["kind"].lower()} option with £0.00 extra price and tick it as the default.')
+                included[0].cleaned_data['is_default'] = included[0].instance.is_default = True
+
+    def save(self, commit=True):
+        saved = super().save(commit=commit)
+        if commit:
+            for form in self.forms:
+                if form.instance.pk and form not in self.deleted_forms:
+                    ProductOption.objects.filter(pk=form.instance.pk).update(
+                        kind=form.instance.kind, sort_order=form.instance.sort_order,
+                        description=form.instance.description, is_default=form.instance.is_default,
+                    )
+        return saved
+
+
+class ProductOptionForm(forms.ModelForm):
+    class Meta:
+        model = ProductOption
+        fields = ['kind', 'label', 'description', 'additional_cost', 'is_default']
+        labels = {
+            'kind': 'Option type',
+            'label': 'Option',
+            'description': 'Guidance',
+            'additional_cost': 'Extra price (£)',
+            'is_default': 'Default',
+        }
+        widgets = {
+            'kind': forms.TextInput(attrs={'list': 'product-option-kinds', 'placeholder': 'e.g. Chain length'}),
+            'label': forms.TextInput(attrs={'placeholder': 'e.g. 18 inches or Medium'}),
+            'description': forms.Textarea(attrs={'rows': 2, 'placeholder': 'Explain who this option suits or how it sits when worn'}),
+            'additional_cost': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+        }
+
+    def clean_kind(self):
+        kind = ' '.join(self.cleaned_data['kind'].split())
+        if not kind:
+            raise ValidationError('Enter an option type, e.g. Chain length, Size or Colour.')
+        return kind[:1].upper() + kind[1:]
+
+    def clean_label(self):
+        return ' '.join(self.cleaned_data['label'].split())
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('is_default') and cleaned.get('additional_cost'):
+            self.add_error('additional_cost', 'The default option is included in the base price, so its extra price must be £0.00.')
+        return cleaned
+
+
+ProductOptionFormSet = forms.inlineformset_factory(
+    Product, ProductOption, form=ProductOptionForm, formset=BaseProductOptionFormSet,
+    extra=0, can_delete=True,
+)
 
 
 class RefundNotesForm(forms.Form):
@@ -180,10 +351,63 @@ class CollectionManagementForm(forms.ModelForm):
         widgets = {'description': forms.Textarea(attrs={'rows': 4})}
 
 
+class DeliveryRegionManagementForm(forms.ModelForm):
+    class Meta:
+        model = DeliveryRegion
+        fields = ['name', 'countries', 'is_default', 'sort_order', 'active']
+        labels = {
+            'name': 'Group name',
+            'countries': 'Countries in this group',
+            'is_default': 'Catch-all group',
+            'sort_order': 'Display order',
+        }
+        help_texts = {
+            'name': 'For example UK, Europe, International or Others.',
+            'is_default': 'Destinations that are not listed in any group fall back to this one.',
+        }
+        widgets = {'countries': forms.Textarea(attrs={'rows': 8})}
+
+    def clean_name(self):
+        return self.cleaned_data['name'].strip()
+
+    def clean_countries(self):
+        known = {country.casefold(): country for country in COUNTRIES}
+        names = []
+        unknown = []
+        for line in self.cleaned_data['countries'].splitlines():
+            entry = line.strip()
+            if not entry:
+                continue
+            match = known.get(entry.casefold())
+            if match is None:
+                unknown.append(entry)
+            elif match not in names:
+                names.append(match)
+        if unknown:
+            raise ValidationError('These countries are not in the checkout country list: ' + ', '.join(unknown))
+        return '\n'.join(names)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get('is_default'):
+            duplicates = DeliveryRegion.objects.filter(is_default=True)
+            if self.instance.pk:
+                duplicates = duplicates.exclude(pk=self.instance.pk)
+            if duplicates.exists():
+                self.add_error('is_default', f'{duplicates.first().name} is already the catch-all group.')
+        return cleaned_data
+
+
 class DeliveryOptionManagementForm(forms.ModelForm):
     class Meta:
         model = DeliveryOption
-        fields = ['code', 'label', 'price', 'free_over', 'active', 'sort_order']
+        fields = ['code', 'label', 'region', 'transit_time', 'price', 'free_over', 'active', 'sort_order']
+        labels = {'region': 'Destination group', 'transit_time': 'Estimated transit time'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['region'].queryset = DeliveryRegion.objects.all()
+        self.fields['region'].empty_label = 'All destinations (ungrouped)'
 
 
 class ShippingPackagingManagementForm(forms.ModelForm):
@@ -235,7 +459,7 @@ class OrderManagementForm(forms.ModelForm):
 
     class Meta:
         model = Order
-        fields = ['status', 'assigned_to', 'payment_status', 'delivery_method', 'delivery_cost', 'discount_amount', 'tracking_number', 'tracking_url']
+        fields = ['status', 'tracking_number', 'tracking_url', 'assigned_to', 'payment_status', 'delivery_method', 'delivery_cost', 'discount_amount']
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -244,78 +468,145 @@ class OrderManagementForm(forms.ModelForm):
             self.initial['assigned_to'] = user.pk
         self.fields['payment_status'].disabled = True
         self.fields['payment_status'].help_text = 'Updated automatically by Stripe.'
+        self.fields['tracking_number'].help_text = 'Enter or paste the Royal Mail tracking number. The tracking URL fills automatically.'
+        self.fields['tracking_number'].widget.attrs.update({'autocomplete': 'off', 'placeholder': 'Enter tracking number'})
+        self.fields['tracking_url'].help_text = 'Automatically generated for Royal Mail. You can replace it for another carrier.'
+        self.fields['tracking_url'].widget.attrs['placeholder'] = royalmail_tracking_url('TRACKING_NUMBER')
+        if not self.is_bound and self.instance.tracking_number and not self.instance.tracking_url:
+            self.initial['tracking_url'] = royalmail_tracking_url(self.instance.tracking_number.strip())
+
+    def clean(self):
+        cleaned = super().clean()
+        number = cleaned.get('tracking_number', '')
+        url = cleaned.get('tracking_url', '')
+        previous_url = royalmail_tracking_url(self.instance.tracking_number.strip()) if self.instance.tracking_number else ''
+        if 'tracking_url' in cleaned and (not url or url == previous_url):
+            cleaned['tracking_url'] = royalmail_tracking_url(number) if number else ''
+        return cleaned
 
 class CheckoutForm(forms.ModelForm):
+    phone_country = forms.ChoiceField(
+        label='Telephone country code',
+        widget=forms.Select(attrs={'autocomplete': 'tel-country-code', 'aria-describedby': 'checkout-phone-help'}),
+    )
+    phone = forms.CharField(
+        label='Phone number', max_length=30,
+        widget=forms.TextInput(attrs={'type': 'tel', 'inputmode': 'tel', 'autocomplete': 'tel-national', 'placeholder': 'Enter your phone number without the leading 0', 'pattern': r'[0-9 \(\)\-]+', 'aria-describedby': 'checkout-phone-help'}),
+    )
     shipping_method = forms.ChoiceField(label='Delivery method', choices=DELIVERY_OPTIONS)
     ship_to_different_address = forms.BooleanField(label='Use a different shipping address', required=False, initial=False)
-    billing_address = forms.ChoiceField(label='Billing address', required=False)
     shipping_address = forms.ChoiceField(label='Shipping address', required=False)
-    billing_name = forms.CharField(label='Billing name', required=False)
-    billing_address1 = forms.CharField(label='Billing house number and street', required=False)
-    billing_address2 = forms.CharField(label='Billing address line 2', required=False)
-    billing_city = forms.CharField(label='Billing city', required=False)
-    billing_postcode = forms.CharField(label='Billing postcode', required=False)
-    billing_country = forms.ChoiceField(label='Billing country', required=False)
+    billing_name = forms.CharField(label='Billing full name', max_length=150)
+    shipping_name = forms.CharField(label='Shipping full name', required=False, max_length=150, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    billing_house_flat = forms.CharField(label='Billing House or Number:', required=False, max_length=30, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    billing_address1 = forms.CharField(label='Billing Address Line 1', required=False, max_length=160, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    billing_address2 = forms.CharField(label='Billing Address Line 2', required=False, max_length=160)
+    billing_city = forms.CharField(label='Billing City', required=False, max_length=100, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    billing_postcode = forms.CharField(label='Billing Postcode', required=False, max_length=30, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    billing_country = forms.ChoiceField(label='Billing Country', required=False, widget=forms.Select(attrs={'data-required-address': 'true'}))
+    shipping_house_flat = forms.CharField(label='Shipping House or Number:', required=False, max_length=30, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    shipping_address1 = forms.CharField(label='Shipping Address Line 1', required=False, max_length=160, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    shipping_address2 = forms.CharField(label='Shipping Address Line 2', required=False, max_length=160)
+    shipping_city = forms.CharField(label='Shipping City', required=False, max_length=100, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    shipping_postcode = forms.CharField(label='Shipping Postcode', required=False, max_length=30, widget=forms.TextInput(attrs={'data-required-address': 'true'}))
+    shipping_country = forms.ChoiceField(label='Shipping Country', required=False, widget=forms.Select(attrs={'data-required-address': 'true'}))
     save_shipping_address = forms.BooleanField(label='Save this shipping address', required=False)
 
     class Meta:
         model = Order
-        fields = ['email','shipping_name','shipping_address1','shipping_address2','shipping_city','shipping_postcode','shipping_country']
+        fields = ['email','phone','shipping_name','shipping_address1','shipping_address2','shipping_city','shipping_postcode','shipping_country']
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        billing_choices = [('', 'Add a new billing address')]
+        countries = phone_countries()
+        self.fields['phone_country'].choices = [('', 'Select telephone country')] + [
+            (details['region'], f'{name} ({details["calling_code"]})')
+            for name, details in countries.items()
+        ]
+        if not self.is_bound:
+            default_country = countries.get(self.initial.get('billing_country', ''))
+            if default_country:
+                self.initial.setdefault('phone_country', default_country['region'])
+            if str(self.initial.get('phone', '')).startswith('+'):
+                try:
+                    region, national = phone_parts(self.initial['phone'])
+                except phonenumbers.NumberParseException:
+                    pass
+                else:
+                    self.initial['phone_country'] = region
+                    self.initial['phone'] = national
         shipping_choices = [('', 'Add a new shipping address')]
+        shipping_addresses = {}
         if user and user.is_authenticated:
-            billing_choices += [(str(address.pk), address.label or str(address)) for address in CustomerAddress.objects.filter(user=user, address_type='billing')]
-            shipping_choices += [(str(address.pk), address.label or str(address)) for address in CustomerAddress.objects.filter(user=user, address_type='shipping')]
-        self.fields['billing_address'].choices = billing_choices
+            shipping_addresses = {
+                str(address.pk): address
+                for address in CustomerAddress.objects.filter(user=user, address_type='shipping')
+            }
+            shipping_choices += [(pk, address.label or str(address)) for pk, address in shipping_addresses.items()]
         self.fields['shipping_address'].choices = shipping_choices
-        self.fields['billing_country'].choices = [('', 'Select a billing country')] + [(country, country) for country in COUNTRIES]
-        self.fields['shipping_country'].choices = [('', 'Select a shipping country')] + [(country, country) for country in COUNTRIES]
+        self.fields['billing_country'].choices = [('', 'Select a country or region')] + [(country, country) for country in COUNTRIES]
+        self.fields['shipping_country'].choices = [('', 'Select a country or region')] + [(country, country) for country in COUNTRIES]
         address_data = self.data if self.is_bound else self.initial
         ship_different = address_data.get('ship_to_different_address') in (True, 'on', 'true', '1')
-        address_type = 'shipping' if ship_different else 'billing'
-        address_field = 'shipping_address' if ship_different else 'billing_address'
         country_field = 'shipping_country' if ship_different else 'billing_country'
         destination_country = address_data.get(country_field, '')
-        saved_address_id = address_data.get(address_field)
-        if user and user.is_authenticated and saved_address_id:
-            saved_address = CustomerAddress.objects.filter(
-                pk=saved_address_id,
-                user=user,
-                address_type=address_type,
-            ).first()
-            if saved_address:
-                destination_country = saved_address.country
+        saved_address = shipping_addresses.get(str(address_data.get('shipping_address', '')))
+        if ship_different and saved_address:
+            destination_country = saved_address.country
         self.fields['shipping_method'].choices = get_delivery_options_for_country(destination_country)
-        for field_name in (
-            'shipping_name', 'shipping_address1', 'shipping_address2', 'shipping_city',
-            'shipping_postcode', 'shipping_country', 'billing_name', 'billing_address1',
-            'billing_address2', 'billing_city', 'billing_postcode', 'billing_country',
-        ):
-            self.fields[field_name].required = False
+        shipping_address_is_saved = saved_address is not None
+        billing_required_fields = (
+            'billing_house_flat', 'billing_address1', 'billing_city', 'billing_postcode', 'billing_country',
+        )
+        shipping_required_fields = (
+            'shipping_name', 'shipping_house_flat', 'shipping_address1', 'shipping_city', 'shipping_postcode', 'shipping_country',
+        )
+        for field_name in billing_required_fields:
+            self.fields[field_name].required = True
+        for field_name in shipping_required_fields:
+            self.fields[field_name].required = ship_different and not shipping_address_is_saved
+        self.fields['shipping_address2'].required = False
+        self.fields['email'].widget.attrs.update({'autocomplete': 'email', 'inputmode': 'email'})
+        for prefix in ('billing', 'shipping'):
+            for suffix, autocomplete in (
+                ('name', 'name'),
+                ('address1', 'address-line1'),
+                ('address2', 'address-line2'),
+                ('city', 'address-level2'),
+                ('postcode', 'postal-code'),
+                ('country', 'country-name'),
+            ):
+                self.fields[f'{prefix}_{suffix}'].widget.attrs['autocomplete'] = f'section-{prefix} {prefix} {autocomplete}'
         self.fields['ship_to_different_address'].initial = False
         self.order_fields([
-            'email', 'shipping_method', 'billing_address', 'billing_name', 'billing_address1',
+            'email', 'phone_country', 'phone', 'billing_name', 'billing_house_flat', 'billing_address1',
             'billing_address2', 'billing_city', 'billing_postcode', 'billing_country',
-            'ship_to_different_address', 'shipping_address', 'shipping_name',
-            'shipping_address1', 'shipping_address2', 'shipping_city', 'shipping_postcode',
-            'shipping_country', 'save_shipping_address',
+            'ship_to_different_address', 'shipping_address', 'shipping_name', 'shipping_house_flat',
+            'shipping_address1', 'shipping_address2', 'shipping_city', 'shipping_postcode', 'shipping_country',
+            'save_shipping_address', 'shipping_method',
         ])
 
     def clean(self):
         cleaned_data = super().clean()
-        if not cleaned_data.get('billing_address'):
-            for field_name in ('billing_name', 'billing_address1', 'billing_city', 'billing_postcode', 'billing_country'):
-                if not cleaned_data.get(field_name):
-                    self.add_error(field_name, 'Enter a billing address or choose a saved billing address.')
-        if cleaned_data.get('ship_to_different_address') and not cleaned_data.get('shipping_address'):
-            for field_name in ('shipping_name', 'shipping_address1', 'shipping_city', 'shipping_postcode', 'shipping_country'):
-                if not cleaned_data.get(field_name):
-                    self.add_error(field_name, 'Enter a shipping address or choose a saved shipping address.')
+        if cleaned_data.get('phone_country') and cleaned_data.get('phone'):
+            try:
+                cleaned_data['phone'] = validate_checkout_phone(cleaned_data['phone_country'], cleaned_data['phone'])
+            except ValidationError as error:
+                self.add_error('phone', error)
         return cleaned_data
+
+
+class GuestOrderTrackingForm(forms.Form):
+    email = forms.EmailField(label='Email address')
+    order_number = forms.CharField(label='Order number', max_length=32)
+    postcode = forms.CharField(label='Delivery postcode', max_length=30)
+
+    def clean_order_number(self):
+        return self.cleaned_data['order_number'].strip().removeprefix('#').strip()
+
+    def clean_postcode(self):
+        return self.cleaned_data['postcode'].strip()
 
 
 class SignUpForm(UserCreationForm):
@@ -371,6 +662,7 @@ class EmailAuthenticationForm(forms.Form):
 
 class CustomerProfileForm(forms.ModelForm):
     email = forms.EmailField(label='Email address')
+    address = forms.CharField(label='Address Line 2', max_length=160, required=False)
     title = forms.ChoiceField(label='Title', required=False, choices=CustomerProfile.TITLE_CHOICES)
     first_name = forms.CharField(label='First name', max_length=150)
     last_name = forms.CharField(label='Last name', max_length=150)
@@ -387,8 +679,10 @@ class CustomerProfileForm(forms.ModelForm):
 
     class Meta:
         model = CustomerProfile
-        fields = ['title', 'first_name', 'last_name', 'email', 'phone', 'house_number', 'street_name', 'city', 'postcode', 'country']
+        fields = ['title', 'first_name', 'last_name', 'email', 'phone', 'house_number', 'street_name', 'address', 'city', 'postcode', 'country']
+        labels = {'address': 'Address Line 2'}
         widgets = {
+            'address': forms.TextInput(),
             'title': forms.Select(choices=CustomerProfile.TITLE_CHOICES),
             'country': forms.Select(choices=[('', 'Select your country')] + [(country, country) for country in COUNTRIES]),
         }
@@ -399,6 +693,11 @@ class CustomerProfileForm(forms.ModelForm):
         self.fields['email'].initial = self.instance.user.email
         self.fields['first_name'].initial = self.instance.user.first_name
         self.fields['last_name'].initial = self.instance.user.last_name
+        billing = CustomerAddress.objects.filter(user=self.instance.user, address_type='billing').first()
+        if billing:
+            for name in ('house_number', 'street_name', 'city', 'postcode', 'country'):
+                self.initial[name] = getattr(billing, name)
+            self.initial['address'] = billing.address2
 
     def clean_email(self):
         email = self.cleaned_data['email'].strip().lower()
@@ -418,3 +717,23 @@ class CustomerProfileForm(forms.ModelForm):
             profile.user.save(update_fields=['email', 'username', 'first_name', 'last_name'])
             profile.save()
         return profile
+
+
+class CustomerShippingAddressForm(forms.ModelForm):
+    class Meta:
+        model = CustomerAddress
+        fields = ['label', 'house_number', 'street_name', 'address2', 'city', 'postcode', 'country']
+        labels = {
+            'house_number': 'House or Number',
+            'street_name': 'Address Line 1',
+            'address2': 'Address Line 2',
+        }
+        widgets = {
+            'country': forms.Select(choices=[('', 'Select a country or region')] + [(country, country) for country in COUNTRIES]),
+        }
+
+    def clean_country(self):
+        country = self.cleaned_data['country']
+        if country not in COUNTRIES:
+            raise ValidationError('Select a valid country or region.')
+        return country

@@ -1,5 +1,8 @@
 from decimal import Decimal
+import uuid
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models, transaction
 from django.urls import reverse
 from django.utils import timezone
@@ -26,26 +29,55 @@ class Collection(models.Model):
     def localized_description(self): return self.description_fr if get_language() == 'fr' and self.description_fr else self.description
     def get_absolute_url(self): return reverse('collection', args=[self.slug])
 
+class ProductCategory(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    slug = models.SlugField(unique=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = 'product categories'
+
+    def __str__(self):
+        return self.name
+
+
+class ProductTag(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    slug = models.SlugField(unique=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+def default_product_category():
+    category, _ = ProductCategory.objects.get_or_create(slug='other', defaults={'name': 'Other'})
+    return category.pk
+
+
 class Product(models.Model):
     name = models.CharField(max_length=200)
     name_fr = models.CharField(max_length=200, blank=True)
     slug = models.SlugField(unique=True)
     sku = models.CharField(max_length=60, unique=True)
     collection = models.ForeignKey(Collection, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    category = models.ForeignKey(ProductCategory, on_delete=models.PROTECT, related_name='products', default=default_product_category)
+    tags = models.ManyToManyField(ProductTag, blank=True, related_name='products')
     description = models.TextField()
     description_fr = models.TextField(blank=True)
     short_description = models.CharField(max_length=300, blank=True)
     short_description_fr = models.CharField(max_length=300, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    compare_at_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'), help_text='Unit cost to source/manufacture this piece, used for margin and replenishment budgeting.')
     reorder_level = models.PositiveIntegerField(default=5, help_text='Reorder when stock falls to or below this quantity.')
     restock_target = models.PositiveIntegerField(default=20, help_text='Target stock quantity to replenish up to.')
     material = models.CharField(max_length=120, blank=True)
     material_fr = models.CharField(max_length=120, blank=True)
-    dimensions = models.CharField(max_length=200, blank=True)
-    size = models.CharField(max_length=120, blank=True)
-    length = models.CharField(max_length=120, blank=True)
+    dimensions = models.CharField('pendant dimensions', max_length=200, blank=True)
+    chain_style = models.CharField(max_length=120, blank=True)
+    colour = models.CharField(max_length=120, blank=True)
     weight = models.CharField(max_length=120, blank=True)
     shipping_box_weight_grams = models.PositiveIntegerField(default=0, help_text='Weight of this product in its jewellery box, in grams.')
     shipping_box_length_cm = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
@@ -89,6 +121,35 @@ class Product(models.Model):
         images = list(self.images.all())
         return next((image for image in images if image.is_primary), images[0] if images else None)
 
+    def option_groups(self):
+        groups = {}
+        for option in self.options.all():
+            group = groups.setdefault(option.kind_key, {'kind': option.kind, 'options': []})
+            group['options'].append(option)
+        for group in groups.values():
+            group['has_default'] = any(option.is_default for option in group['options'])
+        return list(groups.values())
+
+    def purchase_selection(self, option_ids=()):
+        groups = self.option_groups()
+        by_id = {str(option.pk): option for group in groups for option in group['options']}
+        chosen = {}
+        for value in option_ids:
+            if value in (None, ''):
+                continue
+            option = by_id.get(str(value))
+            if option is None or option.kind_key in chosen:
+                raise ValidationError(f'Please choose an available option for {self.name}.')
+            chosen[option.kind_key] = option
+        for group in groups:
+            if group['options'][0].kind_key not in chosen:
+                raise ValidationError(f'Please choose an available {group["kind"].lower()} for {self.name}.')
+        selected = [chosen[group['options'][0].kind_key] for group in groups]
+        return {
+            'options': selected,
+            'unit_price': self.price + sum((option.additional_cost for option in selected), Decimal('0.00')),
+        }
+
     def save(self, *args, stock_actor=None, stock_reason='', stock_order=None, **kwargs):
         update_fields = kwargs.get('update_fields')
         if not self._state.adding and update_fields is not None and 'stock_quantity' not in update_fields:
@@ -113,6 +174,38 @@ class Product(models.Model):
                 )
 
 
+class ProductOption(models.Model):
+    SUGGESTED_KINDS = ['Chain length', 'Size', 'Colour']
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='options')
+    kind = models.CharField(max_length=60, help_text='Option type shown to customers, e.g. Chain length, Size or Colour.')
+    label = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default='', help_text='Optional guidance shown to customers when they choose this option.')
+    additional_cost = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    is_default = models.BooleanField(default=False, help_text='Preselected for customers and included in the base price.')
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'pk']
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'kind', 'label'], name='unique_product_option_label'),
+            models.CheckConstraint(
+                condition=models.Q(is_default=False) | models.Q(additional_cost=0),
+                name='product_option_default_included',
+            ),
+            models.CheckConstraint(condition=models.Q(additional_cost__gte=0), name='product_option_cost_nonnegative'),
+        ]
+
+    def __str__(self):
+        return f'{self.kind}: {self.label}'
+
+    @property
+    def kind_key(self):
+        return ' '.join(self.kind.split()).casefold()
+
+
 class StockMovement(models.Model):
     REASON_CHOICES = [('opening', 'Opening balance'), ('restock', 'Restock'), ('adjustment', 'Manual adjustment'), ('sale', 'Paid purchase'), ('gift', 'Free gift')]
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements')
@@ -133,9 +226,53 @@ class StockMovement(models.Model):
         indexes = [models.Index(fields=['product', '-created_at'], name='shop_stock_product_date_idx')]
 
 
+class DeliveryRegion(models.Model):
+    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')
+    name = models.CharField(max_length=80, unique=True)
+    countries = models.TextField(
+        blank=True,
+        help_text='One country per line, exactly as it appears in the checkout country list.',
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text='Use this group for any country that is not listed in another group.',
+    )
+    active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        verbose_name = 'delivery region'
+        verbose_name_plural = 'delivery regions'
+
+    def __str__(self): return self.name
+
+    def country_list(self):
+        return [line.strip() for line in self.countries.splitlines() if line.strip()]
+
+    def matches(self, country):
+        normalized = (country or '').strip().casefold()
+        if not normalized:
+            return False
+        return any(name.casefold() == normalized for name in self.country_list())
+
+
 class DeliveryOption(models.Model):
     code = models.CharField(max_length=30, unique=True)
     label = models.CharField(max_length=120)
+    transit_time = models.CharField(
+        max_length=60,
+        blank=True,
+        help_text='Estimated transit time shown to customers, for example "3-5 business days".',
+    )
+    region = models.ForeignKey(
+        DeliveryRegion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='delivery_options',
+        help_text='Destination group this method is offered for. Leave blank to offer it everywhere.',
+    )
     price = models.DecimalField(max_digits=10, decimal_places=2)
     free_over = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     active = models.BooleanField(default=True)
@@ -208,11 +345,12 @@ class CartItem(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='cart_items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='cart_items')
     quantity = models.PositiveIntegerField(default=1)
+    selection_key = models.CharField(max_length=200, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'product'], name='unique_user_cart_product')]
+        constraints = [models.UniqueConstraint(fields=['user', 'product', 'selection_key'], name='unique_user_cart_selection')]
         ordering = ['created_at']
 
     def __str__(self): return f'{self.user} - {self.product} ({self.quantity})'
@@ -249,6 +387,7 @@ class CustomerAddress(models.Model):
     label = models.CharField(max_length=80, blank=True)
     house_number = models.CharField(max_length=30)
     street_name = models.CharField(max_length=160)
+    address2 = models.CharField(max_length=160, blank=True)
     city = models.CharField(max_length=100)
     postcode = models.CharField(max_length=30)
     country = models.CharField(max_length=80)
@@ -283,7 +422,12 @@ class Order(models.Model):
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_orders', limit_choices_to={'is_staff': True, 'is_active': True}, verbose_name='Processing by')
     order_reference = models.CharField(max_length=6, unique=True, null=True, blank=True, db_index=True)
     email = models.EmailField()
+    phone = models.CharField(max_length=16, blank=True, validators=[RegexValidator(
+        regex=r'^\+[1-9][0-9]{1,14}$',
+        message='Use E.164 format, for example +447123456789.',
+    )])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status_entered_at = models.DateTimeField(default=timezone.now, editable=False, db_index=True)
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
     payment_channel = models.CharField(max_length=20, choices=PAYMENT_CHANNEL_CHOICES, default='stripe')
     manual_entry_id = models.UUIDField(null=True, blank=True, unique=True, editable=False)
@@ -340,22 +484,67 @@ class Order(models.Model):
             return 'Unassigned'
         return self.assigned_to.get_full_name().strip() or f'Staff #{self.assigned_to_id} (name not set)'
 
+    @property
+    def is_unpaid_checkout(self):
+        return self.payment_channel == 'stripe' and self.payment_status in {'pending', 'processing', 'failed', 'cancelled'} and not self.paid_at
+
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        status_saved = update_fields is None or 'status' in update_fields
+        previous_status = None
+        if not self._state.adding and status_saved:
+            previous_status = type(self).objects.using(kwargs.get('using') or self._state.db).filter(pk=self.pk).values_list('status', flat=True).first()
+            if previous_status != self.status:
+                self.status_entered_at = timezone.now()
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(update_fields) | {'status_entered_at'}
         milestone = {
             'processing': 'processing_started_at',
             'shipped': 'shipped_at',
             'completed': 'completed_at',
         }.get(self.status)
         update_fields = kwargs.get('update_fields')
-        if milestone and not getattr(self, milestone) and (update_fields is None or 'status' in update_fields):
-            previous_status = None
-            if not self._state.adding:
-                previous_status = type(self).objects.using(kwargs.get('using') or self._state.db).filter(pk=self.pk).values_list('status', flat=True).first()
+        if milestone and not getattr(self, milestone) and status_saved:
             if self._state.adding or previous_status != self.status:
                 setattr(self, milestone, timezone.now())
                 if update_fields is not None:
                     kwargs['update_fields'] = set(update_fields) | {milestone}
         super().save(*args, **kwargs)
+
+class CheckoutAttempt(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='checkout_attempts')
+    fingerprint = models.CharField(max_length=64, blank=True)
+    cart_snapshot = models.JSONField(default=dict)
+    form_data = models.JSONField(default=dict)
+    cart_cleared_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class OrderReminderRule(models.Model):
+    status = models.CharField(max_length=20, choices=Order.STATUS_CHOICES, unique=True)
+    after_hours = models.PositiveIntegerField(default=24, validators=[MinValueValidator(1)])
+    staff = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name='order_reminder_rules', limit_choices_to={'is_staff': True, 'is_active': True})
+    distribution_emails = models.TextField(blank=True, help_text='One staff/distribution-list email address per line. Never enter customer addresses.')
+    enabled = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['status']
+
+    def __str__(self):
+        return f'{self.get_status_display()} after {self.after_hours} hours'
+
+
+class OrderReminderDelivery(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='reminder_deliveries')
+    status = models.CharField(max_length=20, choices=Order.STATUS_CHOICES)
+    sent_at = models.DateTimeField(default=timezone.now)
+    recipients = models.TextField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['order', 'status'], name='unique_order_status_reminder')]
+        ordering = ['-sent_at']
+
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
@@ -365,6 +554,17 @@ class OrderItem(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'), help_text='Product cost price at time of order, snapshotted for accurate historical margin reporting.')
     quantity = models.PositiveIntegerField()
+    chain_length = models.CharField(max_length=120, blank=True)
+    size = models.CharField(max_length=120, blank=True)
+    options_summary = models.TextField(blank=True)
+
+    @property
+    def selection_description(self):
+        if self.options_summary:
+            return self.options_summary
+        return ', '.join(
+            f'{label}: {value}' for label, value in [('Chain length', self.chain_length), ('Size', self.size)] if value
+        )
 
     @property
     def line_total(self): return self.unit_price * self.quantity
@@ -513,12 +713,28 @@ class AnalyticsEvent(models.Model):
     target = models.CharField(max_length=255, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     country = models.CharField(max_length=80, blank=True)
+    city = models.CharField(max_length=120, blank=True)
+    region = models.CharField(max_length=120, blank=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
     referrer = models.CharField(max_length=500, blank=True)
     user_agent = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
+
+    @property
+    def location_label(self):
+        return ', '.join(part for part in (self.city, self.region, self.country) if part) or 'Unknown'
+
+    @property
+    def location_coordinates(self):
+        if self.latitude is None or self.longitude is None:
+            return ''
+        latitude = f'{self.latitude:.5f}'.rstrip('0').rstrip('.')
+        longitude = f'{self.longitude:.5f}'.rstrip('0').rstrip('.')
+        return f'{latitude}, {longitude}'
 
 
 class BlockedIP(models.Model):

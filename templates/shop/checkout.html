@@ -6,49 +6,77 @@
 	<h1>Complete your order</h1>
 	{% if request.user.is_authenticated %}<p>Your account address is prefilled. You can use it for delivery or choose a different shipping address.</p>{% endif %}
 	<p class="checkout-email-note">Your order confirmation and PDF will be sent by email. If you do not see it, please check your Junk or Spam folder.</p>
+	{% if pending_checkout %}<p role="status">Your bag and details have been kept for order <strong>{{ pending_checkout.order_reference }}</strong>. Continue below to resume payment. If you change your items or details, we will safely replace the unpaid checkout. Please do not order again if your payment is still processing.</p>{% endif %}
 </section>
 <section class="checkout">
 	<form method="post" class="checkout-form">
 		{% csrf_token %}
 		{{ form.non_field_errors }}
-		<label class="checkout-field">{{ form.email.label }}{{ form.email }}{% for error in form.email.errors %}<small>{{ error }}</small>{% endfor %}</label>
-		<label class="checkout-field">{{ form.shipping_method.label }}{{ form.shipping_method }}{% for error in form.shipping_method.errors %}<small>{{ error }}</small>{% endfor %}</label>
-		<section class="checkout-address-fields">
+		<section class="checkout-step">
+			<h2>Contact</h2>
+			{% if request.user.is_authenticated %}<p><a href="{% url 'account' %}?edit=1">Edit your account details</a></p>{% endif %}
+			{% include 'shop/_checkout_field.html' with field=form.email only %}
+			<div class="checkout-phone-fields">
+				{% include 'shop/_checkout_field.html' with field=form.phone_country only %}
+				<div class="checkout-phone-number">
+					<label for="{{ form.phone.id_for_label }}">{{ form.phone.label }} <span class="checkout-required" aria-hidden="true">*</span></label>
+					<div class="checkout-phone-heading"{% if form.phone.errors or form.phone_country.errors %} data-phone-error{% endif %}>
+						{{ form.phone }}
+						<button class="phone-info" type="button" aria-label="Phone number format help" aria-describedby="checkout-phone-help" aria-controls="checkout-phone-help">i</button>
+						<p id="checkout-phone-help" class="checkout-phone-help" role="tooltip">Choose your telephone country and enter your number without its country code or domestic dialling prefix. For the UK: +44 7XXXXXXXXX, without the leading 0. Keep any leading zero that is part of the actual number, such as for Italian landlines. Your number is saved in international E.164 format.</p>
+					</div>
+					{{ form.phone.errors }}
+				</div>
+			</div>
+			<p data-phone-preview aria-live="polite"></p>
+		</section>
+		<section class="checkout-address-fields checkout-step">
 			<h2>Billing address</h2>
-			<label class="checkout-field saved-address-field">{{ form.billing_address.label }}{{ form.billing_address }}{% for error in form.billing_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
 			<div data-billing-new-fields>
-				<label class="checkout-field">{{ form.billing_name.label }}{{ form.billing_name }}{% for error in form.billing_name.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.billing_address1.label }}{{ form.billing_address1 }}{% for error in form.billing_address1.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.billing_address2.label }}{{ form.billing_address2 }}{% for error in form.billing_address2.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.billing_city.label }}{{ form.billing_city }}{% for error in form.billing_city.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.billing_postcode.label }}{{ form.billing_postcode }}{% for error in form.billing_postcode.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.billing_country.label }}{{ form.billing_country }}{% for error in form.billing_country.errors %}<small>{{ error }}</small>{% endfor %}</label>
+				{% include 'shop/_checkout_field.html' with field=form.billing_name only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_house_flat address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_address1 address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_address2 only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_city address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_postcode address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.billing_country address_required=True only %}
 			</div>
 		</section>
 		<label class="checkout-different-address">{{ form.ship_to_different_address }}<span>Use a different shipping address</span>{% for error in form.ship_to_different_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
-		<section class="checkout-address-fields" data-shipping-address-fields hidden>
+		<section class="checkout-address-fields checkout-step" data-shipping-address-fields hidden>
 			<h2>Shipping address</h2>
-			<label class="checkout-field saved-address-field">{{ form.shipping_address.label }}{{ form.shipping_address }}{% for error in form.shipping_address.errors %}<small>{{ error }}</small>{% endfor %}</label>
+			{% if request.user.is_authenticated %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_address saved_address=True only %}
+				<p><a href="{% url 'account' %}#shipping-addresses">Edit or remove saved shipping addresses</a></p>
+			{% endif %}
 			<div data-shipping-new-fields>
-				<label class="checkout-field">{{ form.shipping_name.label }}{{ form.shipping_name }}{% for error in form.shipping_name.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.shipping_address1.label }}{{ form.shipping_address1 }}{% for error in form.shipping_address1.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.shipping_address2.label }}{{ form.shipping_address2 }}{% for error in form.shipping_address2.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.shipping_city.label }}{{ form.shipping_city }}{% for error in form.shipping_city.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.shipping_postcode.label }}{{ form.shipping_postcode }}{% for error in form.shipping_postcode.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.shipping_country.label }}{{ form.shipping_country }}{% for error in form.shipping_country.errors %}<small>{{ error }}</small>{% endfor %}</label>
-				<label class="checkout-field">{{ form.save_shipping_address }}<span>{{ form.save_shipping_address.label }}</span></label>
+				{% include 'shop/_checkout_field.html' with field=form.shipping_name address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_house_flat address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_address1 address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_address2 only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_city address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_postcode address_required=True only %}
+				{% include 'shop/_checkout_field.html' with field=form.shipping_country address_required=True only %}
+				{% if request.user.is_authenticated %}<label class="checkout-field">{{ form.save_shipping_address }}<span>{{ form.save_shipping_address.label }}</span></label>{% endif %}
 			</div>
 		</section>
-		<button class="button" type="submit">Place order</button>
+		<section class="checkout-step checkout-delivery-step">
+			<h2>Delivery method</h2>
+			<p class="checkout-delivery-hint" data-delivery-region>Choose your country or region above to see the delivery methods available for your destination.</p>
+			{% include 'shop/_checkout_field.html' with field=form.shipping_method only %}
+		</section>
+		<button class="button" type="submit">Continue to payment</button>
 	</form>
 	<aside class="order-summary">
 		<h2>Your order</h2>
-		{% for item in items %}<p>{{ item.quantity }} × {{ item.product.name }} <strong>£{{ item.total }}</strong></p>{% endfor %}
+		{% for item in items %}<p>{{ item.quantity }} × {{ item.product.name }} <strong>£{{ item.total }}</strong></p>{% for option in item.options %}<p>{{ option.kind }}: {{ option.label }}</p>{% endfor %}{% endfor %}
 		<hr>
-		<p>Subtotal <strong id="checkout-subtotal" data-subtotal="{{ cart.subtotal }}">£{{ cart.subtotal }}</strong></p>
-			<p>Delivery <strong id="checkout-delivery-cost">{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p>
-			<small class="delivery-rate-note" data-delivery-note>Delivery prices and estimated transit times depend on your destination.</small>
-			<p>Total <strong id="checkout-total">£{{ checkout_total }}</strong></p>
+		<p>Subtotal <strong id="checkout-subtotal" data-subtotal="{{ checkout_subtotal }}">£{{ checkout_subtotal }}</strong></p>
+		<p>Delivery <strong id="checkout-delivery-cost">{% if delivery_cost == 0 %}Free{% else %}£{{ delivery_cost }}{% endif %}</strong></p>
+		<small class="delivery-rate-note" data-delivery-service aria-live="polite">Delivery service details update when you choose your destination.</small>
+		<small class="delivery-rate-note" data-delivery-transit hidden></small>
+		<small class="delivery-rate-note">Delivery costs and times vary by destination. Please refer to our <a href="{% url 'terms_and_conditions' %}#international-shipping">Terms &amp; Conditions</a>.</small>
+		<p>Total <strong id="checkout-total">£{{ checkout_total }}</strong></p>
 	</aside>
 </section>
 {{ delivery_rates|json_script:'delivery-rates' }}
@@ -56,4 +84,5 @@
 {{ shipping_rate_data|json_script:'shipping-rates' }}
 {{ parcel_metrics|json_script:'parcel-metrics' }}
 {{ saved_checkout_addresses|json_script:'saved-checkout-addresses' }}
+{{ phone_country_data|json_script:'phone-countries' }}
 {% endblock %}

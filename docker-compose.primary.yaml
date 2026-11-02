@@ -1,0 +1,35 @@
+# Primary-host replication endpoints. Enable with
+# COMPOSE_FILE=docker-compose.yaml:docker-compose.primary.yaml in .env.
+# Ports bind to loopback only; the standby reaches them through a restricted
+# SSH tunnel (see deploy/README.md, "Live standby replication").
+x-replication-tools: &replication-tools
+  build:
+    context: ./deploy
+    dockerfile_inline: |
+      FROM alpine:3.21
+      RUN apk add --no-cache socat rsync openssh-client mysql-client
+  image: misha-web-replication-tools
+  restart: unless-stopped
+
+services:
+  db-relay:
+    <<: *replication-tools
+    command: ["socat", "TCP-LISTEN:3306,fork,reuseaddr", "TCP:db:3306"]
+    ports:
+      - "127.0.0.1:3307:3306"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  media-export:
+    <<: *replication-tools
+    command:
+      - sh
+      - -c
+      - install -m 600 /run/replication/rsyncd.secrets /etc/rsyncd.secrets && exec rsync --daemon --no-detach --config=/etc/rsyncd-media.conf
+    volumes:
+      - media_data:/media:ro
+      - ./deploy/rsyncd-media.conf:/etc/rsyncd-media.conf:ro
+      - ${MISHA_REPLICATION_DIR:?MISHA_REPLICATION_DIR must be set}/rsyncd.secrets:/run/replication/rsyncd.secrets:ro
+    ports:
+      - "127.0.0.1:8730:873"

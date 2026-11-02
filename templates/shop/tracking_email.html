@@ -4,7 +4,7 @@
   <div style="max-width:680px;margin:0 auto;padding:28px 16px;">
     <div style="background:#ffffff;border:1px solid #dbe4e0;">
       <div style="padding:24px;text-align:center;border-bottom:4px solid #c6a15b;">
-        <a href="{{ logo_url }}" style="display:inline-block;"><img src="cid:misha-logo" alt="MISHA Island Heritage" width="150" style="display:block;width:150px;max-width:60%;height:auto;margin:0 auto;border:0;"></a>
+        <a href="{{ shop_url }}" style="display:inline-block;"><img src="{{ logo_url }}" alt="MISHA Island Heritage" width="150" style="display:block;width:150px;max-width:60%;height:auto;margin:0 auto;border:0;"></a>
       </div>
       <div style="padding:30px 28px;">
         <p style="margin:0 0 8px;color:#8a6a32;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Order dispatched</p>
@@ -15,7 +15,7 @@
           <tr><td style="padding:12px;font-size:13px;color:#60716d;">Tracking number</td><td style="padding:12px;text-align:right;font-weight:bold;color:#183b3a;overflow-wrap:anywhere;">{{ order.tracking_number }}</td></tr>
           <tr><td style="padding:12px;font-size:13px;color:#60716d;">Delivery method</td><td style="padding:12px;text-align:right;">{{ order.get_delivery_method_display }}</td></tr>
         </table>
-        {% if order.tracking_url %}<p style="margin:22px 0;text-align:center;"><a href="{{ order.tracking_url }}" style="display:inline-block;padding:12px 20px;background:#183b3a;color:#ffffff;text-decoration:none;font-weight:bold;">Track your order</a></p>{% endif %}
+        <p style="margin:28px 0;text-align:center;"><a href="{{ tracking_page_url }}" style="display:block;padding:18px 24px;background:#183b3a;color:#ffffff;text-decoration:none;font-size:18px;line-height:1.5;font-weight:bold;">View your order progress</a></p>
         <p>Thank you for shopping with Misha Island Heritage.</p>
       </div>
       <div style="padding:18px 28px;background:#183b3a;color:#ffffff;font-size:12px;text-align:center;">MISHA Island Heritage</div>

@@ -7,22 +7,23 @@
 	<p>Discover pieces inspired by island nature, heritage and generations.</p>
 </section>
 <section class="section">
-	<form class="filters" method="get">
-		<input name="q" value="{{ query }}" placeholder="Search jewellery" aria-label="Search jewellery">
-		<select name="collection" aria-label="Filter by collection">
-			<option value="">All collections</option>
-			{% for collection in collections %}<option value="{{ collection.slug }}"{% if current_collection == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}
-		</select>
-		<button class="button" type="submit">Filter</button>
-		<select name="sort" aria-label="Sort jewellery">
-			<option value="default"{% if current_sort == 'default' %} selected{% endif %}>Default order</option>
-			<option value="price_asc"{% if current_sort == 'price_asc' %} selected{% endif %}>Price: low to high</option>
-			<option value="price_desc"{% if current_sort == 'price_desc' %} selected{% endif %}>Price: high to low</option>
-			<option value="preorder_first"{% if current_sort == 'preorder_first' %} selected{% endif %}>Pre-order first</option>
-		</select>
+	<form class="filters jewellery-filters" method="get" aria-label="Filter jewellery">
+		{% if current_collection %}<input type="hidden" name="collection" value="{{ current_collection }}">{% endif %}
+		<div class="jewellery-filter-controls">
+			<div><label for="{{ filter_form.category.id_for_label }}">Category</label>{{ filter_form.category }}</div>
+			<div><label for="{{ filter_form.sort.id_for_label }}">Sort by</label>{{ filter_form.sort }}</div>
+		</div>
+		<fieldset class="jewellery-tag-filter">
+			<legend>Shop by tags</legend>
+			<p id="tag-filter-help">Choose any tags. Pieces matching at least one selected tag will be shown.</p>
+			{% include 'shop/_tag_picker.html' with field=filter_form.tags help_id='tag-filter-help' only %}
+		</fieldset>
+		{% if filter_form.errors %}<div class="filter-errors" role="alert"><p>Please choose an available category, tag and sorting option.</p>{{ filter_form.errors }}</div>{% endif %}
+		<div class="jewellery-filter-actions"><button class="button" type="submit">Apply filters</button><a class="button outline" href="{% url 'catalogue' %}">Clear filters</a></div>
 	</form>
+	<p class="jewellery-result-count">{{ products|length }} piece{{ products|length|pluralize }} found</p>
 	<div class="grid">
-		{% for product in products %}{% include 'shop/_product_card.html' with product=product %}{% empty %}<p>No jewellery found.</p>{% endfor %}
+		{% for product in products %}{% include 'shop/_product_card.html' with product=product %}{% empty %}<p>No jewellery matches these filters. Try another category or <a href="{% url 'catalogue' %}">clear the filters</a>.</p>{% endfor %}
 	</div>
 </section>
 {% endblock %}

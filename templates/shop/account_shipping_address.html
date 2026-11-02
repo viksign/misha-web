@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Edit Shipping Address | MISHA{% endblock %}
+{% block content %}
+<section class="page-head">
+	<p class="eyebrow">MY ACCOUNT</p>
+	<h1>Edit shipping address</h1>
+</section>
+<section class="section account-section">
+	<form class="profile-form" method="post">
+		{% csrf_token %}
+		{{ form.non_field_errors }}
+		{% for field in form %}
+			<div class="profile-field">
+				{{ field.label_tag }}
+				{{ field }}
+				{{ field.errors }}
+			</div>
+		{% endfor %}
+		<div class="profile-actions">
+			<button class="button" type="submit">Save address</button>
+			<a class="button outline" href="{% url 'account' %}#shipping-addresses">Cancel</a>
+		</div>
+	</form>
+	<section id="remove-address">
+		<h2>Remove this address</h2>
+		<p>Remove this address from your saved shipping addresses? Existing orders will not be changed.</p>
+		<form method="post">
+			{% csrf_token %}
+			<input type="hidden" name="action" value="delete">
+			<button class="button outline" type="submit">Remove address</button>
+		</form>
+	</section>
+</section>
+{% endblock %}

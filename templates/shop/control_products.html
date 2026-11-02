@@ -1,32 +1,33 @@
 {% extends 'base.html' %}
 {% block title %}Products | Control Panel{% endblock %}
 {% block content %}
-<section class="page-head"><p class="eyebrow">CONTROL PANEL / CATALOGUE</p><h1>Products</h1><p>Add products, update prices and manage stock.</p></section>
+<section class="page-head"><p class="eyebrow">CONTROL PANEL / CATALOGUE</p><h1>Products</h1><p>Add products, update prices and manage stock. Product deletion is locked. Manage visibility through the Active setting when editing or on the Inventory page.</p></section>
 {% include 'shop/_control_nav.html' %}
 <section class="section control-products-toolbar">
-  <form class="catalogue-search" method="get">
-    <label for="product-search">Search products</label>
-    <input id="product-search" type="search" name="q" value="{{ query }}" placeholder="Name or SKU">
-    <label for="product-collection-filter">Collection</label>
-    <select id="product-collection-filter" name="collection">
-      <option value="">All collections</option>
-      {% for collection in collections %}<option value="{{ collection.slug }}"{% if collection_filter == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}
-    </select>
-    <button class="button" type="submit">Search</button>
-    {% if query or collection_filter %}<a class="button outline" href="{% url 'control_products' %}">Clear</a>{% endif %}
+  <form class="control-product-filters" method="get" aria-label="Filter products">
+    <div class="control-product-filter-fields">
+      <div><label for="product-search">Search products</label><input id="product-search" type="search" name="q" value="{{ query }}" placeholder="Name or SKU"></div>
+      <div><label for="product-collection-filter">Collection</label><select id="product-collection-filter" name="collection"><option value="">All collections</option>{% for collection in collections %}<option value="{{ collection.slug }}"{% if collection_filter == collection.slug %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}</select></div>
+      <div><label for="{{ filter_form.category.id_for_label }}">Category</label>{{ filter_form.category }}</div>
+    </div>
+    <fieldset class="jewellery-tag-filter"><legend>Filter by tags</legend><p id="product-filter-tag-help">Choose tags to find products matching any selected tag.</p>{% include 'shop/_tag_picker.html' with field=filter_form.tags help_id='product-filter-tag-help' only %}</fieldset>
+    {% if filter_form.errors %}<div class="filter-errors" role="alert"><p>Please choose an available category and tags.</p>{{ filter_form.errors }}</div>{% endif %}
+    <div class="jewellery-filter-actions"><button class="button" type="submit">Apply filters</button><a class="button outline" href="{% url 'control_products' %}">Clear filters</a></div>
   </form>
-  <button class="button" type="button" data-product-modal-open>Add product</button>
 </section>
 <section class="section product-catalogue-section">
-  <div class="product-catalogue-heading"><div><p class="eyebrow">CATALOGUE</p><h2>All products</h2></div><span>{{ products|length }} result{{ products|length|pluralize }}</span></div>
-  <div class="product-table-wrap">
+  <div class="product-catalogue-heading"><div><p class="eyebrow">CATALOGUE</p><h2>All products</h2></div><div class="product-catalogue-actions"><span>{{ products|length }} result{{ products|length|pluralize }}</span><button class="button product-add-button" type="button" data-product-modal-open>Add product</button></div></div>
+  <p class="product-table-help">Scroll across the table to see all product details and the Edit action.</p>
+  <div class="product-table-wrap" tabindex="0" role="region" aria-label="Product catalogue table">
     <table class="product-table">
-      <thead><tr><th>Product</th><th>SKU</th><th>Collection</th><th>Featured</th><th>Price</th><th>Images</th><th>In stock</th><th>Pending orders</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Tags</th><th>Collection</th><th>Featured</th><th>Price</th><th>Images</th><th>In stock</th><th>Pending orders</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {% for product in products %}
         <tr>
           <td><strong>{{ product.name }}</strong><small>{{ product.short_description|default:'No short description' }}</small></td>
           <td>{{ product.sku }}</td>
+          <td>{{ product.category.name }}</td>
+          <td>{% for tag in product.tags.all %}<span>{{ tag.name }}</span>{% empty %}No tags{% endfor %}</td>
           <td>{{ product.collection.name|default:'Unassigned' }}</td>
           <td>{% if product.featured %}Yes{% else %}No{% endif %}</td>
           <td>£{{ product.price }}</td>
@@ -34,14 +35,14 @@
           <td><span class="product-stock {% if product.stock_quantity == 0 %}is-empty{% elif product.stock_quantity <= 5 %}is-low{% endif %}">{{ product.stock_quantity }}</span></td>
           <td><span class="product-pending">{{ product.pending_orders }}</span></td>
           <td><span class="product-status {% if product.active %}is-active{% else %}is-hidden{% endif %}">{% if product.active %}Active{% else %}Hidden{% endif %}</span></td>
-          <td class="product-actions"><a class="table-action" href="?edit={{ product.pk }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}{% if collection_filter %}&amp;collection={{ collection_filter|urlencode }}{% endif %}">Edit</a><form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="{{ product.pk }}"><button class="table-action danger" type="submit">Remove</button></form></td>
+          <td class="product-actions"><a class="table-action" href="?edit={{ product.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Edit</a></td>
         </tr>
-        {% empty %}<tr><td colspan="10" class="empty-table">No products match your search.</td></tr>{% endfor %}
+        {% empty %}<tr><td colspan="12" class="empty-table">No products match your filters.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
 </section>
-<div class="product-modal" data-product-modal data-open="{% if editing or form.errors %}true{% else %}false{% endif %}"{% if not editing and not form.errors %} hidden{% endif %}>
+<div class="product-modal" data-product-modal data-open="{% if editing or form.errors or option_formset.errors or option_formset.non_form_errors %}true{% else %}false{% endif %}"{% if not editing and not form.errors and not option_formset.errors and not option_formset.non_form_errors %} hidden{% endif %}>
   <div class="product-modal-backdrop" data-product-modal-close></div>
   <div class="product-modal-panel" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
     <div class="product-modal-heading"><h2 id="product-modal-title">{% if editing %}Edit product{% else %}Add product{% endif %}</h2><button class="modal-close" type="button" data-product-modal-close aria-label="Close product form">&times;</button></div>
@@ -58,7 +59,45 @@
       </div>
     </div>
     {% endif %}
-    <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<label>Product images <input type="file" name="images" accept="image/*" multiple>{% if editing %}<span>Select one or more images to add to this product.</span>{% else %}<span>Save the product first, then add images from the edit screen.</span>{% endif %}</label><div class="product-modal-actions"><button class="button" type="submit">Save product</button><button class="button outline" type="button" data-product-modal-close>Cancel</button></div></form>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {% for field in form %}
+        {% if field.name == 'tags' %}
+          <div class="product-tag-field">
+            {{ field.errors }}
+            <p><strong>Tags</strong></p>
+            {% include 'shop/_tag_picker.html' with field=field help_id='id_tags_helptext' only %}
+            <p class="helptext" id="id_tags_helptext">{{ field.help_text }}</p>
+          </div>
+        {% else %}
+          {{ field.errors }}
+          <p>{{ field.label_tag }} {{ field }}{% if field.help_text %}<span class="helptext"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ field.help_text }}</span>{% endif %}</p>
+        {% endif %}
+      {% endfor %}
+      <p class="product-option-help"><a href="{% url 'control_product_taxonomy' %}">Manage categories and tags</a>. Each product has one category and can have several tags.</p>
+      <p class="product-option-help">Parcel weights and jewellery-box measurements are managed on the <a href="{% url 'control_delivery' %}#shipping-products">Delivery page</a>.</p>
+      <fieldset class="product-option-manager" data-option-manager>
+        <legend>Product options</legend>
+        <p class="product-option-help">Add any option customers can choose, e.g. Chain length, Size or Colour. The product price above is the price with the <strong>default</strong> options; enter what each other option adds. Example: price £29.99, Chain length 16 inches (default, £0.00) and 20 inches (+£5.00) — customers choosing 20 inches pay £34.99. Stock is shared across all options.</p>
+        {{ option_formset.management_form }}
+        {% if option_formset.non_form_errors %}<div class="product-option-errors" role="alert">{{ option_formset.non_form_errors }}</div>{% endif %}
+        <datalist id="product-option-kinds">{% for kind in option_kinds %}<option value="{{ kind }}">{% endfor %}</datalist>
+        <div class="product-option-table">
+          <div class="product-option-head" aria-hidden="true"><span>Option type</span><span>Option</span><span>Guidance</span><span>Extra price (£)</span><span>Default</span><span>Remove</span></div>
+          <div data-option-rows>
+            {% for option_form in option_formset %}{% include 'shop/_product_option_row.html' with option_form=option_form %}{% endfor %}
+          </div>
+          <p class="product-option-empty" data-option-empty{% if option_formset.forms %} hidden{% endif %}>No options yet. This product sells at the base price.</p>
+        </div>
+        <template data-option-template>{% include 'shop/_product_option_row.html' with option_form=option_formset.empty_form %}</template>
+        <div class="product-option-add-actions">
+          <button class="button outline" type="button" data-option-add>+ Add option</button>
+        </div>
+      </fieldset>
+      <label>Product images <input type="file" name="images" accept="image/*" multiple>{% if editing %}<span>Select one or more images to add to this product.</span>{% else %}<span>Save the product first, then add images from the edit screen.</span>{% endif %}</label>
+      <div class="product-modal-actions"><button class="button" type="submit">Save product</button><button class="button outline" type="button" data-product-modal-close>Cancel</button></div>
+    </form>
   </div>
 </div>
 {% endblock %}
