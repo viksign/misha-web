@@ -307,6 +307,26 @@ Cloudflare switch, so no Stripe change is needed at failover. Do not add a
 SendGrid sender authentication is DNS-based, so mail sends the same from
 either host. After changing secrets on Azure, copy them to the standby.
 
+#### Disaster-recovery drill (safe test)
+
+`deploy/dr-drill.sh` starts a private, throwaway copy of the shop on the
+standby. The copy is built from a snapshot of the replica and the current
+media. Replication keeps running, and the replica is not modified. The copy
+prints emails to its log instead of sending them, uses no live Stripe keys,
+and listens only on `127.0.0.1:8081`.
+
+```bash
+./deploy/dr-drill.sh up       # snapshot + start (pending migrations run on the copy)
+./deploy/dr-drill.sh emails   # emails the copy would have sent
+./deploy/dr-drill.sh down     # delete the copy (live media volume is untouched)
+```
+
+Browse it through an SSH tunnel from your PC
+(`ssh -L 8081:127.0.0.1:8081 dockerhost2`, then `http://localhost:8081/`).
+To test checkout, set `DRILL_STRIPE_SECRET_KEY=sk_test_...` for `up` and pay
+with card `4242 4242 4242 4242`. Run a drill after every release and at least
+monthly.
+
 #### Failover (Azure unavailable)
 
 Up to a few seconds of the most recent orders may be lost. Quick path on the
