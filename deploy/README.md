@@ -309,7 +309,17 @@ either host. After changing secrets on Azure, copy them to the standby.
 
 #### Failover (Azure unavailable)
 
-Up to a few seconds of the most recent orders may be lost. Run on the standby:
+Up to a few seconds of the most recent orders may be lost. Quick path on the
+standby, after fencing Azure (step 1 below):
+
+```bash
+cd /opt/misha-web
+./deploy/promote-standby.sh --check   # preflight only
+./deploy/promote-standby.sh           # type PROMOTE; performs steps 2-4 and 6
+```
+
+Then switch Cloudflare (step 5) and test checkout (step 7). The manual
+equivalent, run on the standby:
 
 1. **Fence Azure** so it cannot take orders if it comes back: stop its VM
    or its `web` container, or confirm the VM is down. Never run both hosts
