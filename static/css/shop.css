@@ -84,6 +84,7 @@ img {
 
 .header-navigation {
   display: flex;
+  min-width: 0;
   grid-column: 1;
   grid-row: 1;
   align-items: center;
@@ -104,6 +105,31 @@ img {
 
 .navigation-shortcut {
   display: inline-flex;
+}
+
+.navigation-label {
+  display: none;
+}
+
+@media(min-width: 1201px) {
+  .navigation-shortcut.has-label {
+    width: auto;
+    padding: 0 12px;
+    border-radius: 22px;
+  }
+
+  .navigation-shortcut.has-label .navigation-label {
+    display: inline;
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+  }
+
+  .navigation-shortcut.has-label .action-icon {
+    display: none;
+  }
 }
 
 .navigation-shortcut:hover,

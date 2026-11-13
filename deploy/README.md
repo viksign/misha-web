@@ -146,13 +146,18 @@ renewal service.
 
 ## Later releases
 
-The storefront header uses icon shortcuts with accessible names and hover
-titles. Above 1200px all five links are visible. At 1001-1200px four remain,
+The storefront header keeps text labels above 1200px while they fit beside the
+centred logo. JavaScript measures the available navigation space and converts
+labels to icons from right to left as needed, recalculating after resizes and
+font loading. Icons retain accessible names and hover titles, and are also the
+fallback without JavaScript. Above 1200px all five links are visible. At 1001-1200px four remain,
 at 761-1000px three remain, and at 760px or below Home and Jewellery remain.
 Hidden links move into the burger menu, in the same order. At 480px or below
 the logo occupies its own row above navigation and account/bag actions.
 When changing the header, check guest, signed-in customer, and staff layouts
 at each breakpoint and verify the logo never overlaps interactive controls.
+Include 1366x768, 1280x720, 1024x768 and 800x600 in the browser checks.
+Update both asset version queries in `templates/base.html` to avoid stale caches.
 
 ```bash
 docker compose up -d --build --remove-orphans

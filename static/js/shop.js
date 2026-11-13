@@ -183,6 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	const menuButton = document.querySelector('.menu-toggle');
 	const navigation = document.querySelector('.site-header nav');
+	const compactHeader = window.matchMedia('(max-width: 1200px)');
 	if (menuButton && navigation) {
 		const setNavigationOpen = (isOpen, restoreFocus = false) => {
 			navigation.classList.toggle('open', isOpen);
@@ -194,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		menuButton.addEventListener('click', () => {
 			setNavigationOpen(!navigation.classList.contains('open'));
 		});
-		window.matchMedia('(max-width: 1200px)').addEventListener('change', () => {
+		compactHeader.addEventListener('change', () => {
 			setNavigationOpen(false);
 		});
 		navigation.querySelectorAll('a').forEach((link) => {
@@ -210,6 +211,23 @@ document.addEventListener('DOMContentLoaded', () => {
 				setNavigationOpen(false, true);
 			}
 		});
+	}
+
+	const headerNavigation = document.querySelector('.header-navigation');
+	if (headerNavigation) {
+		const shortcuts = Array.from(headerNavigation.querySelectorAll('.navigation-shortcut'));
+		const updateHeaderLabels = () => {
+			shortcuts.forEach((link) => link.classList.toggle('has-label', !compactHeader.matches));
+			if (compactHeader.matches) return;
+			const availableRight = headerNavigation.getBoundingClientRect().right;
+			for (let index = shortcuts.length - 1; index >= 0; index--) {
+				if (shortcuts[shortcuts.length - 1].getBoundingClientRect().right <= availableRight) break;
+				shortcuts[index].classList.remove('has-label');
+			}
+		};
+		new ResizeObserver(updateHeaderLabels).observe(headerNavigation);
+		document.fonts.ready.then(updateHeaderLabels);
+		updateHeaderLabels();
 	}
 
 	document.querySelectorAll('[data-tag-picker]').forEach((picker) => {

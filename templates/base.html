@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Playfair+Display:wght@500;600;700&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/shop.css' %}?v=20261012-responsive-header">
+  <link rel="stylesheet" href="{% static 'css/shop.css' %}?v=20261113-adaptive-header">
 </head>
 <body>
 
@@ -38,18 +38,23 @@
       </button>
       <a class="navigation-shortcut navigation-home" href="{% url 'home' %}" aria-label="Home" title="Home">
         <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9"></path></svg>
+        <span class="navigation-label">Home</span>
       </a>
       <a class="navigation-shortcut navigation-jewellery" href="{% url 'catalogue' %}" aria-label="Jewellery" title="Jewellery">
         <svg class="action-icon jewellery-bust-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="4" rx="6" ry="2"></ellipse><path d="M10 6c0 4-2 7-7 9 0 8 5 14 13 14s13-6 13-14c-5-2-7-5-7-9"></path><path d="M6 13c2 5 6 7 10 7s8-2 10-7"></path><circle cx="7" cy="15" r="1.5"></circle><circle cx="11" cy="18" r="1.5"></circle><circle cx="16" cy="19" r="1.5"></circle><circle cx="21" cy="18" r="1.5"></circle><circle cx="25" cy="15" r="1.5"></circle><path d="M16 21c-1 1-3 3-3 4a3 3 0 0 0 6 0c0-1-2-3-3-4Z"></path></svg>
+        <span class="navigation-label">Jewellery</span>
       </a>
       <a class="navigation-shortcut navigation-heritage" href="{% url 'heritage' %}" aria-label="Our Heritage" title="Our Heritage">
         <svg class="action-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="m7 6 9-4 9 4v2H7V6Zm2 2v9m5-9v9m4-9v9m5-9v9M7 17h18v2H7v-2ZM8 30l1-6-5-5-2-6a1.5 1.5 0 0 1 3-1l2 5 5 3c2 1 3 3 3 5l-1 5H8Zm16 0-1-6 5-5 2-6a1.5 1.5 0 0 0-3-1l-2 5-5 3c-2 1-3 3-3 5l1 5h6M9 25l6 1m8-1-6 1"></path></svg>
+        <span class="navigation-label">Our Heritage</span>
       </a>
       <a class="navigation-shortcut navigation-custom" href="{% url 'custom_design' %}" aria-label="Custom design" title="Custom design">
         <svg class="action-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M26 16a12 12 0 1 1-9-11M6 27v-2a8 8 0 0 1 16 0v2"></path><circle cx="14" cy="15" r="4"></circle><path d="M22 1h4l.5 2 2-.5 2 3-1.5 1.5.5 2-3 .5-1 2.5h-3l-1-2.5-3-.5.5-2L17 5.5l2-3 2 .5 1-2Z"></path><circle cx="24" cy="6" r="2.5"></circle></svg>
+        <span class="navigation-label">Custom design</span>
       </a>
       <a class="navigation-shortcut navigation-tracking" href="{% url 'order_tracking' %}" aria-label="Track order" title="Track order">
         <svg class="action-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M12 2a6 6 0 0 0-6 6c0 4 6 11 6 11s6-7 6-11a6 6 0 0 0-6-6Z"></path><circle cx="12" cy="8" r="2"></circle><path d="M3 13H2v13h3m8 0h9m6 0h2v-7l-6-7h-4m0 3h3l4 5h-7v-5Z"></path><circle cx="9" cy="26" r="4"></circle><circle cx="25" cy="26" r="3"></circle></svg>
+        <span class="navigation-label">Track order</span>
       </a>
     </div>
     <nav id="site-navigation" aria-label="Main navigation">
@@ -202,7 +207,7 @@
       advertising: '{% if not private_order_page %}{{ google_ads_id|default:""|escapejs }}{% endif %}'
     };
   </script>
-  <script src="{% static 'js/shop.js' %}?v=20261012-responsive-header"></script>
+  <script src="{% static 'js/shop.js' %}?v=20261113-adaptive-header"></script>
   <footer>
     <div class="footer-brand">
       <img src="{% static 'images/mih_logo.png' %}?v=20261003" alt="Misha Island Heritage">
