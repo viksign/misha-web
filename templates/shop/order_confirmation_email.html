@@ -10,7 +10,6 @@
         <p style="margin:0 0 8px;color:#8a6a32;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Order confirmation</p>
         <h1 style="margin:0 0 18px;color:#183b3a;font-size:28px;font-weight:600;">Thank you for your order</h1>
         <p>Hello {{ order.shipping_name }},</p>
-        {% if order.phone %}<p>Contact phone: {{ order.phone }}</p>{% endif %}
         <p>Thank you for choosing Misha Island Heritage. We have received your order and are now processing it with care.</p>
         <p>We will email you again when your order has been dispatched with the tracking details. A PDF copy of your order summary is also included for your records.</p>
         <p><a href="{{ tracking_page_url }}" style="color:#183b3a;font-weight:bold;">Track your order progress</a></p>
@@ -50,6 +49,7 @@
           <tr><td style="padding:9px 0;color:#60716d;vertical-align:top;">Town / city</td><td style="padding:9px 0;text-align:right;vertical-align:top;">{{ order.shipping_city }}</td></tr>
           <tr><td style="padding:9px 0;color:#60716d;vertical-align:top;">Postcode</td><td style="padding:9px 0;text-align:right;vertical-align:top;">{{ order.shipping_postcode }}</td></tr>
           <tr><td style="padding:9px 0;color:#60716d;vertical-align:top;">Country</td><td style="padding:9px 0;text-align:right;vertical-align:top;">{{ order.shipping_country }}</td></tr>
+          {% if order.phone %}<tr><td style="padding:9px 0;color:#60716d;vertical-align:top;">Contact phone</td><td style="padding:9px 0;text-align:right;vertical-align:top;">{{ order.phone }}</td></tr>{% endif %}
         </table>
         <p style="margin-top:28px;">We look forward to getting your order to you.</p>
       </div>
